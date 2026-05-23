@@ -27,10 +27,10 @@ THEME_ANNOUNCERS = {
 }
 
 WELCOME_TEMPLATES = {
-    ThemeType.PRODUCT_LAUNCH: "Please welcome to the stage... our next presenter! They're here to talk about {topic}. Let's see if the crowd goes easy on them!",
-    ThemeType.CORPORATE: "Next on the agenda... {topic}. Please give your attention to the presenter. And try not to fall asleep!",
-    ThemeType.STANDUP: "Alright folks, give it up for our next comedian! They're going to talk about {topic}. Let's see if they're actually funny!",
-    ThemeType.STAGE_SHOW: "And now, for the performance you've all been waiting for... {topic}! Take the stage and good luck!",
+    ThemeType.PRODUCT_LAUNCH: "Please welcome {name} to the stage! They're here to talk about {topic}. Let's see if the crowd goes easy on them!",
+    ThemeType.CORPORATE: "Next on the agenda, please welcome {name}! They'll be presenting on {topic}. Try not to fall asleep everyone!",
+    ThemeType.STANDUP: "Alright folks, give it up for {name}! They're going to talk about {topic}. Let's see if they're actually funny!",
+    ThemeType.STAGE_SHOW: "And now, the moment you've all been waiting for... please welcome {name}! They're performing about {topic}. Good luck up there!",
 }
 
 logging.basicConfig(level=logging.INFO)
@@ -94,7 +94,7 @@ async def get_welcome_audio(session_id: str):
     topic = session.topic
     voice_id, _ = THEME_ANNOUNCERS.get(theme, THEME_ANNOUNCERS[ThemeType.PRODUCT_LAUNCH])
     template = WELCOME_TEMPLATES.get(theme, WELCOME_TEMPLATES[ThemeType.PRODUCT_LAUNCH])
-    welcome_text = template.replace("{topic}", topic)
+    welcome_text = template.replace("{topic}", topic).replace("{name}", getattr(session, 'name', 'our speaker'))
 
     audio = await elevenlabs_service.text_to_speech(welcome_text, voice_id)
     result = {"text": welcome_text}

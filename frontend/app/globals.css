@@ -132,6 +132,11 @@ button, select, input {
   100% { transform: translateX(0) scale(1); opacity: 1; }
 }
 
+@keyframes fade-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .screen {
   width: 100vw;
   height: 100vh;

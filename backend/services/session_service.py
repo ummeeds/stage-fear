@@ -38,6 +38,7 @@ async def create_session(data: SessionCreate) -> SessionState:
     session = SessionState(
         id=str(uuid.uuid4()),
         topic=data.topic,
+        name=data.name,
         theme=data.theme,
         intensity=data.intensity,
         transcript=[],

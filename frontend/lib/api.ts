@@ -1,11 +1,11 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
-export async function createSession(topic: string, theme: string, intensity: number) {
+export async function createSession(topic: string, theme: string, intensity: number, name: string) {
   const res = await fetch(`${API_URL}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic, theme, intensity }),
+    body: JSON.stringify({ topic, theme, intensity, name }),
   });
   if (!res.ok) throw new Error('Failed to create session');
   return res.json();

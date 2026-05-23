@@ -73,6 +73,7 @@ class SessionCreate(BaseModel):
     topic: str
     theme: ThemeType
     intensity: int  # 1-5
+    name: str = ""
 
 
 class CrowdWorkRequest(BaseModel):
@@ -90,9 +91,10 @@ class HeckleEvent(BaseModel):
 class SessionState(BaseModel):
     id: str
     topic: str
+    name: str = ""
     theme: ThemeType
     intensity: int
-    transcript: List[str]
-    heckles: List[HeckleEvent]
+    transcript: List[str] = []
+    heckles: List[HeckleEvent] = []
     created_at: datetime
-    status: str  # "crowd_work" | "on_stage" | "ended"
+    status: str = "crowd_work"

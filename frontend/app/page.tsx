@@ -1,24 +1,57 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSession } from '@/lib/api';
 
 const THEMES = [
-  { value: 'product_launch', label: 'Product Launch', emoji: 'L', color: '#3498db', desc: 'Pitch your startup to a skeptical crowd' },
-  { value: 'corporate', label: 'Corporate Meeting', emoji: 'C', color: '#7f8c8d', desc: 'Present quarterly results to the board' },
-  { value: 'standup', label: 'Standup Comedy', emoji: 'S', color: '#e74c3c', desc: 'Test your jokes on a tough crowd' },
-  { value: 'stage_show', label: 'Stage Show', emoji: 'T', color: '#9b59b6', desc: 'Perform on the big stage with critics' },
+  { value: 'product_launch', label: 'Product Launch', color: '#3498db' },
+  { value: 'corporate', label: 'Corporate Meeting', color: '#7f8c8d' },
+  { value: 'standup', label: 'Standup Comedy', color: '#e74c3c' },
+  { value: 'stage_show', label: 'Stage Show', color: '#9b59b6' },
 ];
 
-function PixelStar({ style }: { style?: React.CSSProperties }) {
+const HECKLE_PREVIEWS = [
+  "Oh great, another one...",
+  "Is this gonna be good?",
+  "I've seen better!",
+  "Booooring!",
+  "Show us what you got!",
+  "This ought to be funny...",
+  "Wake me when it's over",
+  "I paid for THIS?!",
+  "My cat speaks better",
+  "Groundbreaking... not.",
+  "Who let them on stage?",
+  "I want a refund!",
+];
+
+function HeckleBubble({ text, x, y }: { text: string; x: string; y: string }) {
   return (
     <div style={{
-      width: '16px', height: '16px', position: 'absolute',
-      background: 'var(--accent)',
-      clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
-      animation: 'pixel-blink 2s ease-in-out infinite',
-      ...style,
-    }} />
+      position: 'absolute',
+      left: x, top: y,
+      background: '#1a1a2e',
+      border: '2px solid #e94560',
+      padding: '6px 10px',
+      fontSize: 'clamp(7px, 1vw, 9px)',
+      fontFamily: "'Press Start 2P', monospace",
+      color: '#e94560',
+      maxWidth: '160px',
+      zIndex: 10,
+      animation: 'wind-up 0.3s ease-out forwards, fade-out 4s ease-in 3s forwards',
+      pointerEvents: 'none',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+    }}>
+      {text}
+      <div style={{
+        position: 'absolute', bottom: '-6px', left: '20px',
+        width: 0, height: 0,
+        borderLeft: '6px solid transparent',
+        borderRight: '6px solid transparent',
+        borderTop: '6px solid #e94560',
+      }} />
+    </div>
   );
 }
 
@@ -27,147 +60,118 @@ export default function HomePage() {
   const [theme, setTheme] = useState('product_launch');
   const [intensity, setIntensity] = useState(3);
   const [topic, setTopic] = useState('');
+  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [screen, setScreen] = useState<'menu' | 'setup'>('menu');
+  const [bubbles, setBubbles] = useState<{ id: number; text: string; x: string; y: string }[]>([]);
+  const bubbleIdRef = useRef(0);
+
+  useEffect(() => {
+    if (screen !== 'menu') return;
+    const spawn = () => {
+      const id = bubbleIdRef.current++;
+      const text = HECKLE_PREVIEWS[id % HECKLE_PREVIEWS.length];
+      const x = `${5 + Math.random() * 60}%`;
+      const y = `${10 + Math.random() * 60}%`;
+      setBubbles(prev => [...prev.slice(-12), { id, text, x, y }]);
+    };
+    const interval = setInterval(spawn, 1200);
+    return () => clearInterval(interval);
+  }, [screen]);
+
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      setBubbles(prev => prev.filter(b => b.id > bubbleIdRef.current - 15));
+    }, 5000);
+    return () => clearInterval(cleanup);
+  }, []);
 
   const handleStart = async () => {
-    if (!topic.trim()) {
-      setError('Tell us what you are going to talk about!');
-      return;
-    }
+    if (!topic.trim()) { setError('Enter your topic first!'); return; }
+    if (!name.trim()) { setError('What is your name?'); return; }
     setLoading(true);
     setError('');
     try {
-      const session = await createSession(topic, theme, intensity);
-      router.push(`/stage?id=${session.session_id}`);
-    } catch (e) {
+      const session = await createSession(topic, theme, intensity, name);
+      router.push(`/stage?id=${session.session_id}&name=${encodeURIComponent(name)}`);
+    } catch {
       setError('Connection failed. Is the server running?');
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="screen grid-bg" style={{ position: 'relative' }}>
-      {[...Array(20)].map((_, i) => (
-        <PixelStar key={i} style={{
-          left: `${Math.random() * 100}%`,
-          top: `${Math.random() * 100}%`,
-          animationDelay: `${Math.random() * 3}s`,
-          opacity: 0.3 + Math.random() * 0.3,
-        } as React.CSSProperties} />
+      {bubbles.map(b => (
+        <HeckleBubble key={b.id} text={b.text} x={b.x} y={b.y} />
       ))}
 
       {screen === 'menu' ? (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px',
-          animation: 'slide-down 0.6s ease-out',
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', animation: 'slide-down 0.6s ease-out', zIndex: 1 }}>
           <div style={{ textAlign: 'center' }}>
-            <h1 className="pixel-title" style={{ color: 'var(--primary)', animation: 'pulse-glow 3s ease-in-out infinite', fontSize: 'clamp(20px, 6vw, 48px)' }}>
+            <h1 style={{ fontFamily: "'Press Start 2P', monospace", color: '#e94560', fontSize: 'clamp(20px, 6vw, 48px)', textShadow: '0 0 20px #e94560', animation: 'pulse-glow 3s ease-in-out infinite', letterSpacing: 4 }}>
               STAGE<br/>FEAR
             </h1>
-            <p className="pixel-subtitle" style={{ marginTop: '16px', fontSize: 'clamp(8px, 2vw, 12px)' }}>
-              Face the hecklers. Own the stage.
+            <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(8px, 1.5vw, 10px)', color: '#666', marginTop: 12 }}>
+              FACE THE HECKLERS. OWN THE STAGE.
             </p>
           </div>
 
-          <div style={{
-            width: 'clamp(60px, 15vw, 100px)',
-            height: 'clamp(60px, 15vw, 100px)',
-            position: 'relative',
-          }}>
-            <div style={{
-              width: '100%', height: '100%',
-              background: 'var(--primary)',
-              clipPath: 'polygon(50% 5%, 95% 95%, 5% 95%)',
-              animation: 'pixel-spin 2s ease-in-out infinite',
-            }} />
-          </div>
+          <div style={{ width: 'clamp(60px, 15vw, 80px)', height: 'clamp(60px, 15vw, 80px)', background: '#e94560', clipPath: 'polygon(50% 5%, 95% 95%, 5% 95%)', animation: 'pixel-spin 2s ease-in-out infinite' }} />
 
           <button className="pixel-btn" onClick={() => setScreen('setup')}
-            style={{ fontSize: 'clamp(10px, 2vw, 14px)', padding: 'clamp(10px, 2vw, 16px) clamp(20px, 4vw, 40px)' }}>
+            style={{ fontSize: 'clamp(10px, 2vw, 14px)', padding: 'clamp(10px, 2vw, 14px) clamp(20px, 4vw, 36px)', borderColor: '#e94560', color: '#e94560' }}>
             PRESS START
           </button>
 
-          <div style={{ position: 'absolute', bottom: '16px', textAlign: 'center' }}>
-            <p className="pixel-subtitle" style={{ fontSize: '8px' }}>
-              Powered by ElevenLabs Speech Engine
-            </p>
-          </div>
+          <p style={{ fontSize: 'clamp(6px, 1vw, 8px)', color: '#333', fontFamily: "'Press Start 2P', monospace", position: 'absolute', bottom: 16 }}>
+            POWERED BY ELEVENLABS
+          </p>
         </div>
       ) : (
-        <div style={{
-          display: 'flex', flexDirection: 'column', gap: '24px',
-          animation: 'slide-up 0.5s ease-out',
-          width: '90vw', maxWidth: '500px',
-          padding: 'clamp(16px, 3vw, 32px)',
-        }}>
-          <h2 className="pixel-title" style={{ fontSize: 'clamp(12px, 3vw, 20px)', color: 'var(--accent)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', animation: 'slide-up 0.5s ease-out', width: '90vw', maxWidth: '500px', padding: 'clamp(12px, 3vw, 24px)', zIndex: 1 }}>
+          <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(11px, 2.5vw, 18px)', color: '#f5c518', textAlign: 'center' }}>
             SETUP YOUR SHOW
           </h2>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label className="pixel-subtitle" style={{ textAlign: 'left' }}>What are you going to talk about?</label>
-            <input
-              className="pixel-input"
-              placeholder="e.g. Launching my AI startup..."
-              value={topic}
-              onChange={(e) => { setTopic(e.target.value); setError(''); }}
-              style={{ width: '100%' }}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(7px, 1vw, 9px)', color: '#666' }}>YOUR NAME</label>
+            <input className="pixel-input" placeholder="e.g. Alex" value={name} onChange={e => { setName(e.target.value); setError(''); }} style={{ width: '100%' }} />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label className="pixel-subtitle" style={{ textAlign: 'left' }}>Stage Theme</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-              {THEMES.map((t) => (
-                <button
-                  key={t.value}
-                  className="pixel-card"
-                  onClick={() => setTheme(t.value)}
-                  style={{
-                    border: theme === t.value ? `3px solid ${t.color}` : '3px solid var(--secondary)',
-                    background: theme === t.value ? `${t.color}22` : 'var(--surface)',
-                    padding: '12px',
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <div style={{ fontSize: '20px', marginBottom: '4px', color: t.color }}>{t.emoji}</div>
-                  <div style={{ fontSize: '8px', color: theme === t.value ? t.color : 'var(--text-dim)' }}>{t.label}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(7px, 1vw, 9px)', color: '#666' }}>WHAT WILL YOU TALK ABOUT?</label>
+            <input className="pixel-input" placeholder="e.g. My AI startup launch..." value={topic} onChange={e => { setTopic(e.target.value); setError(''); }} style={{ width: '100%' }} />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(7px, 1vw, 9px)', color: '#666' }}>STAGE THEME</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {THEMES.map(t => (
+                <button key={t.value} className="pixel-card" onClick={() => setTheme(t.value)}
+                  style={{ border: theme === t.value ? `3px solid ${t.color}` : '3px solid #1a1a2e', background: theme === t.value ? `${t.color}22` : '#0a0a0a', padding: 10, cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s' }}>
+                  <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(6px, 1vw, 8px)', color: theme === t.value ? t.color : '#555' }}>{t.label}</div>
                 </button>
               ))}
             </div>
           </div>
 
           <div className="slider-container" style={{ width: '100%' }}>
-            <label className="pixel-subtitle">Heckler Intensity: {intensity}/5</label>
-            <input
-              type="range" min="1" max="5" value={intensity}
-              onChange={(e) => setIntensity(Number(e.target.value))}
-              className="pixel-slider"
-              style={{ width: '100%' }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '8px', color: 'var(--text-dim)' }}>
-              <span>Easy</span>
-              <span>Brutal</span>
+            <label style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 'clamp(7px, 1vw, 9px)', color: '#666' }}>HECKLE INTENSITY: {intensity}/5</label>
+            <input type="range" min="1" max="5" value={intensity} onChange={e => setIntensity(Number(e.target.value))} className="pixel-slider" style={{ width: '100%' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 8, color: '#444', fontFamily: "'Press Start 2P', monospace" }}>
+              <span>EASY</span><span>BRUTAL</span>
             </div>
           </div>
 
-          {error && (
-            <p style={{ color: 'var(--pixel-red)', fontSize: '10px', textAlign: 'center', animation: 'shake 0.3s ease-in-out' }}>
-              {error}
-            </p>
-          )}
+          {error && <p style={{ color: '#e74c3c', fontSize: 9, fontFamily: "'Press Start 2P', monospace", textAlign: 'center', animation: 'shake 0.3s ease-in-out' }}>{error}</p>}
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button className="pixel-btn danger" onClick={() => setScreen('menu')}>
-              BACK
-            </button>
-            <button className="pixel-btn success" onClick={handleStart} disabled={loading}>
-              {loading ? 'LOADING...' : 'GO ON STAGE!'}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button className="pixel-btn danger" onClick={() => setScreen('menu')}>BACK</button>
+            <button className="pixel-btn success" onClick={handleStart} disabled={loading}
+              style={{ background: loading ? '#555' : '#2ecc71', borderColor: loading ? '#555' : '#2ecc71', color: '#0a0a0a' }}>
+              {loading ? '...' : 'GO ON STAGE!'}
             </button>
           </div>
         </div>
