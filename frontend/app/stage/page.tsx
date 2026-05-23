@@ -170,22 +170,24 @@ function StageContent() {
   }, []);
 
   useEffect(() => {
-    if (!sid || loadedRef.current) return;
-    loadedRef.current = true;
-
-    getSession(sid).then(async s => {
-      console.log('[Session] loaded:', s);
-      setSession(s);
-      setTheme(STAGE_THEMES[s.theme] || STAGE_THEMES.product_launch);
-      setCrowdWork(s.crowd_work || []);
-      try { const w = await getWelcomeAudio(sid); console.log('[Welcome] audio:', w.audio ? 'received' : 'none'); if (w.audio) playMP3(w.audio); } catch (e) { console.error('[Welcome] error:', e); }
-    });
-  }, [sid]);
-
-  useEffect(() => {
-    const initAudio = () => {
-      playSynth('cheer', 0.4);
-      setSfxReady(true);
+    const initAudio = async () => {
+      try {
+        const ctx = new AudioContext();
+        if (ctx.state === 'suspended') await ctx.resume();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 800;
+        g.gain.value = 0.001;
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+        o.stop(ctx.currentTime + 0.05);
+        ctx.close();
+        console.log('[SFX] unlocked');
+      } catch (e) {
+        console.error('[SFX] unlock error:', e);
+      }
       document.removeEventListener('click', initAudio);
       document.removeEventListener('keydown', initAudio);
     };
@@ -196,6 +198,30 @@ function StageContent() {
       document.removeEventListener('keydown', initAudio);
     };
   }, []);
+
+  useEffect(() => {
+    if (!sid || loadedRef.current) return;
+    loadedRef.current = true;
+
+    const loadSession = async () => {
+      const s = await getSession(sid);
+      console.log('[Session] loaded:', s);
+      setSession(s);
+      setTheme(STAGE_THEMES[s.theme] || STAGE_THEMES.product_launch);
+      setCrowdWork(s.crowd_work || []);
+      setTimeout(() => playSynth('cheer', 0.4), 100);
+      try {
+        const w = await getWelcomeAudio(sid);
+        console.log('[Welcome] audio:', w.audio ? 'received' : 'none');
+        if (w.audio) {
+          setTimeout(() => playMP3(w.audio), 200);
+        }
+      } catch (e) {
+        console.error('[Welcome] error:', e);
+      }
+    };
+    loadSession();
+  }, [sid]);
 
   useEffect(() => {
     if (!sid) return;

@@ -3,6 +3,23 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSession } from '@/lib/api';
 
+function playMenuSynth() {
+  try {
+    const ctx = new AudioContext();
+    if (ctx.state === 'suspended') ctx.resume();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.value = 220;
+    g.gain.value = 0.05;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.1);
+    setTimeout(() => ctx.close(), 200);
+  } catch {}
+}
+
 const THEMES = [
   { value: 'product_launch', label: 'Product Launch', color: '#3498db' },
   { value: 'corporate', label: 'Corporate Meeting', color: '#7f8c8d' },
@@ -70,6 +87,12 @@ export default function HomePage() {
   const [screen, setScreen] = useState<'menu' | 'setup'>('menu');
   const [bubbles, setBubbles] = useState<{ id: number; text: string; x: string; y: string; from: 'left' | 'right' }[]>([]);
   const bubbleIdRef = useRef(0);
+
+  useEffect(() => {
+    const unlockAudio = () => { playMenuSynth(); document.removeEventListener('click', unlockAudio); };
+    document.addEventListener('click', unlockAudio);
+    return () => document.removeEventListener('click', unlockAudio);
+  }, []);
 
   useEffect(() => {
     if (screen !== 'menu') return;
