@@ -36,7 +36,8 @@ function Pix({ sprite, s = 3, glow = false }: { sprite: number[][]; s?: number; 
 
 function playSynth(type: 'cheer' | 'heckle' | 'boo', volume = 0.15) {
   try {
-    const ctx = new AudioContext();
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
     const mg = ctx.createGain(); mg.gain.value = volume; mg.connect(ctx.destination);
 
     if (type === 'cheer') {
@@ -67,18 +68,25 @@ function playSynth(type: 'cheer' | 'heckle' | 'boo', volume = 0.15) {
       }
     }
     setTimeout(() => { mg.disconnect(); ctx.close(); }, 4000);
-  } catch {}
+    console.log('[SFX] playSynth', type, 'volume:', volume);
+  } catch (e) {
+    console.error('[SFX] playSynth error:', e);
+  }
 }
 
 function playMP3(b64: string | null) {
-  if (!b64) return;
+  if (!b64) { console.log('[MP3] no audio data'); return; }
   try {
+    console.log('[MP3] playing audio, length:', b64.length);
     const bin = atob(b64); const buf = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
     const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mp3' }));
-    const a = new Audio(url); a.volume = 0.7; a.play().catch(() => {});
+    const a = new Audio(url); a.volume = 0.7;
+    a.play().then(() => console.log('[MP3] playing')).catch(e => console.error('[MP3] play error:', e));
     setTimeout(() => URL.revokeObjectURL(url), 8000);
-  } catch {}
+  } catch (e) {
+    console.error('[MP3] error:', e);
+  }
 }
 
 function StageContent() {
@@ -97,6 +105,7 @@ function StageContent() {
   const [showCrowd, setShowCrowd] = useState(true);
   const [theme, setTheme] = useState(STAGE_THEMES.product_launch);
   const [speaking, setSpeaking] = useState(false);
+  const [sfxReady, setSfxReady] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mrRef = useRef<MediaRecorder | null>(null);
@@ -106,14 +115,58 @@ function StageContent() {
   const sendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadedRef = useRef(false);
   const ambRef = useRef<AudioContext | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
-  const sendAccumulatedAudio = useCallback(() => {
+  const convertToWav = async (blob: Blob): Promise<Uint8Array> => {
+    const ctx = audioCtxRef.current || new AudioContext();
+    audioCtxRef.current = ctx;
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const wavBuffer = audioBufferToWav(audioBuffer);
+    return new Uint8Array(wavBuffer);
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const numChannels = 1;
+    const sampleRate = buffer.sampleRate;
+    const format = 1;
+    const bitDepth = 16;
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataLength = buffer.length * numChannels * bytesPerSample;
+    const headerLength = 44;
+    const totalLength = headerLength + dataLength;
+    const arrayBuffer = new ArrayBuffer(totalLength);
+    const view = new DataView(arrayBuffer);
+    const writeString = (offset: number, str: string) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeString(0, 'RIFF'); view.setUint32(4, totalLength - 8, true); writeString(8, 'WAVE');
+    writeString(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true); writeString(36, 'data'); view.setUint32(40, dataLength, true);
+    const channelData = buffer.getChannelData(0);
+    let offset = 44;
+    for (let i = 0; i < channelData.length; i++) {
+      const sample = Math.max(-1, Math.min(1, channelData[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      offset += 2;
+    }
+    return arrayBuffer;
+  };
+
+  const sendAccumulatedAudio = useCallback(async () => {
     if (chunksRef.current.length === 0 || wsRef.current?.readyState !== WebSocket.OPEN) return;
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     chunksRef.current = [];
-    const r = new FileReader();
-    r.onloadend = () => { const b64 = (r.result as string).split(',')[1]; wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio: b64 })); };
-    r.readAsDataURL(blob);
+    try {
+      const wavData = await convertToWav(blob);
+      const b64 = btoa(String.fromCharCode(...wavData));
+      wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio: b64 }));
+      console.log('[SEND] sent WAV audio, size:', wavData.length);
+    } catch (e) {
+      console.error('[SEND] conversion error:', e);
+    }
   }, []);
 
   useEffect(() => {
@@ -121,13 +174,28 @@ function StageContent() {
     loadedRef.current = true;
 
     getSession(sid).then(async s => {
+      console.log('[Session] loaded:', s);
       setSession(s);
       setTheme(STAGE_THEMES[s.theme] || STAGE_THEMES.product_launch);
       setCrowdWork(s.crowd_work || []);
-      playSynth('cheer', 0.4);
-      try { const w = await getWelcomeAudio(sid); if (w.audio) playMP3(w.audio); } catch {}
+      try { const w = await getWelcomeAudio(sid); console.log('[Welcome] audio:', w.audio ? 'received' : 'none'); if (w.audio) playMP3(w.audio); } catch (e) { console.error('[Welcome] error:', e); }
     });
   }, [sid]);
+
+  useEffect(() => {
+    const initAudio = () => {
+      playSynth('cheer', 0.4);
+      setSfxReady(true);
+      document.removeEventListener('click', initAudio);
+      document.removeEventListener('keydown', initAudio);
+    };
+    document.addEventListener('click', initAudio);
+    document.addEventListener('keydown', initAudio);
+    return () => {
+      document.removeEventListener('click', initAudio);
+      document.removeEventListener('keydown', initAudio);
+    };
+  }, []);
 
   useEffect(() => {
     if (!sid) return;
@@ -136,11 +204,13 @@ function StageContent() {
     ws.onclose = () => setConn(false);
     ws.onmessage = ev => {
       const d = JSON.parse(ev.data);
+      console.log('[WS] message type:', d.type, d);
       if (d.type === 'transcript') {
         setTranscript(prev => { const n = [...prev, d.text]; return n.slice(-25); });
         setTimeout(() => transEnd.current?.scrollIntoView({ behavior: 'smooth' }), 30);
       }
       if (d.type === 'heckle') {
+        console.log('[WS] heckle received:', d.text, 'audio:', d.audio ? 'present' : 'null');
         setLastH(d.text); setHIdx(d.position);
         setTimeout(() => { setHIdx(null); setLastH(''); }, 3000);
         playMP3(d.audio);
@@ -169,14 +239,16 @@ function StageContent() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       msRef.current = stream;
-      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' });
+      const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm';
+      const mr = new MediaRecorder(stream, { mimeType });
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.start();
       mrRef.current = mr;
       sendTimerRef.current = setInterval(sendAccumulatedAudio, 3000);
       setRec(true); setShowCrowd(false); setSpeaking(true);
+      if (sfxReady) playSynth('cheer', 0.4);
     } catch {}
-  }, [sendAccumulatedAudio]);
+  }, [sendAccumulatedAudio, sfxReady]);
 
   const stopMic = useCallback(() => {
     mrRef.current?.stop();

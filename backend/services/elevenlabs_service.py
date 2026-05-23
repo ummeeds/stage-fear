@@ -41,7 +41,7 @@ class ElevenLabsService:
             return None
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                files = {"file": ("audio.webm", io.BytesIO(audio_bytes), "audio/webm")}
+                files = {"file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
                 data = {"model_id": "scribe_v1"}
                 headers = {"xi-api-key": self.api_key}
                 response = await client.post(
@@ -50,6 +50,7 @@ class ElevenLabsService:
                     data=data,
                     headers=headers,
                 )
+                logger.info(f"[STT API] status={response.status_code} body={response.text[:500]}")
                 if response.status_code == 200:
                     return response.json().get("text", "")
                 else:

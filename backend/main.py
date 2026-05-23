@@ -134,25 +134,25 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                     continue
 
                 audio_bytes = base64.b64decode(audio_b64)
+                logger.info(f"[STT] audio_size={len(audio_bytes)} bytes")
                 transcript = await elevenlabs_service.speech_to_text(audio_bytes)
+                logger.info(f"[STT] transcript: '{transcript}' len={len(transcript.split()) if transcript else 0}")
 
                 if transcript and len(transcript.strip()) > 2:
                     segment_buffer += " " + transcript.strip()
+                    logger.info(f"[BUFFER] '{segment_buffer[:80]}...' words={len(segment_buffer.split())}")
 
-                    await websocket.send_json({
-                        "type": "transcript",
-                        "text": transcript.strip(),
-                    })
-
-                    if len(segment_buffer.split()) >= 8:
+                    if len(segment_buffer.split()) >= 4:
                         await add_transcript_segment(session_id, segment_buffer.strip())
 
                         intensity = session.intensity
                         heckle_chance = intensity / 5.0
-                        cooldown = max(1.5, 8.0 - intensity)
+                        cooldown = max(0.5, 4.0 - intensity * 0.5)
 
                         now = time.time()
-                        if now - last_heckle_time > cooldown and random.random() < heckle_chance * 0.4:
+                        will_heckle = now - last_heckle_time > cooldown and random.random() < heckle_chance * 0.8
+                        logger.info(f"[HECKLE CHECK] triggered={will_heckle} buffer={len(segment_buffer.split())} intensity={intensity} chance={heckle_chance*0.8} cooldown={cooldown}s last_heckle_ago={now - last_heckle_time:.1f}s")
+                        if will_heckle:
                             last_heckle_time = now
 
                             persona = random.choice(personas)
@@ -168,6 +168,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                             )
 
                             if heckle_text:
+                                logger.info(f"[HECKLE] generating audio for: {heckle_text}")
                                 audio_bytes_out = await elevenlabs_service.text_to_speech(
                                     text=heckle_text,
                                     voice_id=config["voice_id"],
@@ -194,6 +195,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                     "position": position,
                                     "tone": config["tone"],
                                 })
+                                logger.info(f"[HECKLE] sent to frontend: {heckle_text[:50]}")
 
                         segment_buffer = ""
 
