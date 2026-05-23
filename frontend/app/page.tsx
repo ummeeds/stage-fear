@@ -25,7 +25,7 @@ const HECKLE_PREVIEWS = [
   "I want a refund!",
 ];
 
-function HeckleBubble({ text, x, y }: { text: string; x: string; y: string }) {
+function HeckleBubble({ text, x, y, from }: { text: string; x: string; y: string; from: 'left' | 'right' }) {
   return (
     <div style={{
       position: 'absolute',
@@ -36,20 +36,24 @@ function HeckleBubble({ text, x, y }: { text: string; x: string; y: string }) {
       fontSize: 'clamp(7px, 1vw, 9px)',
       fontFamily: "'Press Start 2P', monospace",
       color: '#e94560',
-      maxWidth: '160px',
-      zIndex: 10,
-      animation: 'wind-up 0.3s ease-out forwards, fade-out 4s ease-in 3s forwards',
+      maxWidth: '120px',
+      zIndex: 0,
+      animation: 'wind-up 0.3s ease-out forwards, fade-out 2s ease-in 4s forwards',
       pointerEvents: 'none',
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      wordBreak: 'break-word',
     }}>
       {text}
       <div style={{
-        position: 'absolute', bottom: '-6px', left: '20px',
+        position: 'absolute', bottom: '-6px',
+        left: from === 'right' ? undefined : '12px',
+        right: from === 'right' ? '12px' : undefined,
         width: 0, height: 0,
-        borderLeft: '6px solid transparent',
-        borderRight: '6px solid transparent',
-        borderTop: '6px solid #e94560',
+        borderLeft: from === 'right' ? '6px solid transparent' : '6px solid #e94560',
+        borderRight: from === 'right' ? '6px solid #e94560' : '6px solid transparent',
+        borderTop: '6px solid transparent',
+        borderBottom: from === 'right' ? '6px solid transparent' : 'none',
+        transform: from === 'right' ? 'rotate(180deg)' : 'none',
       }} />
     </div>
   );
@@ -64,19 +68,32 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [screen, setScreen] = useState<'menu' | 'setup'>('menu');
-  const [bubbles, setBubbles] = useState<{ id: number; text: string; x: string; y: string }[]>([]);
+  const [bubbles, setBubbles] = useState<{ id: number; text: string; x: string; y: string; from: 'left' | 'right' }[]>([]);
   const bubbleIdRef = useRef(0);
 
   useEffect(() => {
     if (screen !== 'menu') return;
+    const corners = [
+      { x: '2%', y: '5%', from: 'left' as const },
+      { x: '50%', y: '5%', from: 'left' as const },
+      { x: '2%', y: '30%', from: 'left' as const },
+      { x: '55%', y: '20%', from: 'right' as const },
+      { x: '2%', y: '55%', from: 'left' as const },
+      { x: '55%', y: '50%', from: 'right' as const },
+      { x: '5%', y: '75%', from: 'left' as const },
+      { x: '50%', y: '70%', from: 'right' as const },
+      { x: '10%', y: '15%', from: 'right' as const },
+      { x: '60%', y: '60%', from: 'left' as const },
+      { x: '5%', y: '45%', from: 'right' as const },
+      { x: '45%', y: '40%', from: 'left' as const },
+    ];
     const spawn = () => {
       const id = bubbleIdRef.current++;
       const text = HECKLE_PREVIEWS[id % HECKLE_PREVIEWS.length];
-      const x = `${5 + Math.random() * 60}%`;
-      const y = `${10 + Math.random() * 60}%`;
-      setBubbles(prev => [...prev.slice(-12), { id, text, x, y }]);
+      const pos = corners[id % corners.length];
+      setBubbles(prev => [...prev.slice(-8), { id, text, x: pos.x, y: pos.y, from: pos.from }]);
     };
-    const interval = setInterval(spawn, 1200);
+    const interval = setInterval(spawn, 2800);
     return () => clearInterval(interval);
   }, [screen]);
 
@@ -104,7 +121,7 @@ export default function HomePage() {
   return (
     <div className="screen grid-bg" style={{ position: 'relative' }}>
       {bubbles.map(b => (
-        <HeckleBubble key={b.id} text={b.text} x={b.x} y={b.y} />
+        <HeckleBubble key={b.id} text={b.text} x={b.x} y={b.y} from={b.from} />
       ))}
 
       {screen === 'menu' ? (
