@@ -132,6 +132,7 @@ class HeckleEvent(BaseModel):
     text: str
     audio_url: Optional[str] = None
     position: int
+    tone: str = ""
     tone: str
 
 

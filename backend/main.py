@@ -155,7 +155,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                         cooldown = max(1.0, 5.0 - intensity * 0.6)
 
                         now = time.time()
-                        should_heckle = (now - last_heckle_time > cooldown) and (random.random() < heckle_chance * 0.7)
+                        should_heckle = (now - last_heckle_time > cooldown)
 
                         logger.info(f"Heckle check: words={word_count} intensity={intensity} chance={heckle_chance*0.7:.2f} cooldown={cooldown:.1f}s elapsed={now-last_heckle_time:.1f}s should_heckle={should_heckle}")
 
@@ -191,6 +191,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                     text=heckle_text,
                                     audio_url=audio_b64_out,
                                     position=position,
+                                    tone=config["tone"],
                                 )
                                 await add_heckle(session_id, heckle)
 
