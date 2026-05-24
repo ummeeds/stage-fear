@@ -40,9 +40,49 @@ function getAudioCtx(): AudioContext {
     globalAudioCtx = new AudioContext();
   }
   if (globalAudioCtx.state === 'suspended') {
-    globalAudioCtx.resume();
+    globalAudioCtx.resume().catch(() => {});
   }
   return globalAudioCtx;
+}
+
+function unlockAudio() {
+  try {
+    const ctx = getAudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    g.gain.value = 0.001;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.01);
+  } catch {}
+}
+
+function playBooSound() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.3;
+    master.connect(ctx.destination);
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(250, now);
+    o.frequency.linearRampToValueAtTime(100, now + 0.4);
+    g.gain.setValueAtTime(0.4, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    o.connect(g);
+    g.connect(master);
+    o.start(now);
+    o.stop(now + 0.5);
+    console.log('[SFX] boo played');
+  } catch (e) {
+    console.error('[SFX] boo error:', e);
+    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+    a.volume = 0.3;
+    a.play().catch(() => {});
+  }
 }
 
 function playSynth(type: 'cheer' | 'heckle' | 'boo', volume = 0.15) {
@@ -260,7 +300,7 @@ function StageContent() {
         setLastH(d.text); setHIdx(d.position);
         setTimeout(() => { setHIdx(null); setLastH(''); }, 3000);
         playMP3(d.audio);
-        playSynth('boo', 0.1);
+        playBooSound();
       }
     };
     return () => { try { ws.close(); } catch {} };
@@ -275,6 +315,7 @@ function StageContent() {
   };
 
   const startMic = useCallback(async () => {
+    unlockAudio();
     stopCrowd();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -292,11 +333,10 @@ function StageContent() {
       sendTimerRef.current = setInterval(sendAccumulatedAudio, 3000);
       setRec(true); setShowCrowd(false); setSpeaking(true);
       playSynth('cheer', 0.3);
-      // Immediate first heckle
       setTimeout(() => {
         setLastH("Oh great, another one...");
         setHIdx(Math.floor(Math.random() * 24));
-        playSynth('boo', 0.15);
+        playBooSound();
         setTimeout(() => { setHIdx(null); setLastH(''); }, 3000);
       }, 800);
     } catch (e) {
