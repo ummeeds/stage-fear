@@ -34,43 +34,81 @@ function Pix({ sprite, s = 3, glow = false }: { sprite: number[][]; s?: number; 
   );
 }
 
+let globalAudioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext {
+  if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
+    globalAudioCtx = new AudioContext();
+  }
+  if (globalAudioCtx.state === 'suspended') {
+    globalAudioCtx.resume();
+  }
+  return globalAudioCtx;
+}
+
 function playSynth(type: 'cheer' | 'heckle' | 'boo', volume = 0.15) {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
-    const mg = ctx.createGain(); mg.gain.value = volume; mg.connect(ctx.destination);
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = volume;
+    master.connect(ctx.destination);
 
     if (type === 'cheer') {
-      for (let i = 0; i < 15; i++) {
-        const o = ctx.createOscillator(); const g = ctx.createGain();
-        const t = ctx.currentTime + Math.random() * 1.2;
-        o.type = (['square','triangle','sawtooth'] as OscillatorType[])[i % 3];
-        o.frequency.value = 150 + Math.random() * 1200;
-        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.08, t + 0.04); g.gain.linearRampToValueAtTime(0, t + 0.2 + Math.random() * 0.4);
-        o.connect(g); g.connect(mg); o.start(t); o.stop(t + 0.5);
+      const notes = [523.25, 659.25, 783.99, 1046.50];
+      notes.forEach((freq, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        const t = now + i * 0.1;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.3, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+        o.connect(g);
+        g.connect(master);
+        o.start(t);
+        o.stop(t + 1.5);
+      });
+      for (let i = 0; i < 8; i++) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = 800 + Math.random() * 400;
+        const t = now + Math.random() * 0.5;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.15, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+        o.connect(g);
+        g.connect(master);
+        o.start(t);
+        o.stop(t + 0.8);
       }
-      const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
-      o2.type = 'sawtooth'; o2.frequency.value = 60;
-      g2.gain.setValueAtTime(0, ctx.currentTime); g2.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.4); g2.gain.linearRampToValueAtTime(0, ctx.currentTime + 2);
-      o2.connect(g2); g2.connect(mg); o2.start(); o2.stop(ctx.currentTime + 2);
-    } else if (type === 'heckle') {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.type = 'square'; o.frequency.setValueAtTime(600, ctx.currentTime); o.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
-      g.gain.setValueAtTime(0.12, ctx.currentTime); g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.25);
-      o.connect(g); g.connect(mg); o.start(); o.stop(ctx.currentTime + 0.25);
     } else if (type === 'boo') {
-      for (let i = 0; i < 4; i++) {
-        const o = ctx.createOscillator(); const g = ctx.createGain();
-        const t = ctx.currentTime + i * 0.08;
-        o.type = 'sawtooth'; o.frequency.value = 150 + i * 40;
-        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.08, t + 0.04); g.gain.linearRampToValueAtTime(0, t + 0.2);
-        o.connect(g); g.connect(mg); o.start(t); o.stop(t + 0.3);
-      }
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(300, now);
+      o.frequency.linearRampToValueAtTime(150, now + 0.4);
+      g.gain.setValueAtTime(0.2, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      o.connect(g);
+      g.connect(master);
+      o.start(now);
+      o.stop(now + 0.5);
+    } else if (type === 'heckle') {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = 400;
+      g.gain.setValueAtTime(0.1, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      o.connect(g);
+      g.connect(master);
+      o.start(now);
+      o.stop(now + 0.15);
     }
-    setTimeout(() => { mg.disconnect(); ctx.close(); }, 4000);
-    console.log('[SFX] playSynth', type, 'volume:', volume);
   } catch (e) {
-    console.error('[SFX] playSynth error:', e);
+    console.error('[SFX] error:', e);
   }
 }
 
@@ -78,14 +116,49 @@ function playMP3(b64: string | null) {
   if (!b64) { console.log('[MP3] no audio data'); return; }
   try {
     console.log('[MP3] playing audio, length:', b64.length);
-    const bin = atob(b64); const buf = new Uint8Array(bin.length);
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
     const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mp3' }));
-    const a = new Audio(url); a.volume = 0.7;
+    const a = new Audio(url);
+    a.volume = 0.7;
     a.play().then(() => console.log('[MP3] playing')).catch(e => console.error('[MP3] play error:', e));
     setTimeout(() => URL.revokeObjectURL(url), 8000);
   } catch (e) {
     console.error('[MP3] error:', e);
+  }
+}
+
+function startCrowdAmbience(intensity: number): () => void {
+  try {
+    const ctx = getAudioCtx();
+    const bufferSize = 2 * ctx.sampleRate;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    let lastOut = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      output[i] = (lastOut + 0.02 * white) / 1.02;
+      lastOut = output[i];
+      output[i] *= 3.5;
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = noiseBuffer;
+    source.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400 + intensity * 100;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.02 + intensity * 0.005;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    source.start();
+    return () => {
+      try { source.stop(); } catch {}
+    };
+  } catch {
+    return () => {};
   }
 }
 
@@ -105,7 +178,6 @@ function StageContent() {
   const [showCrowd, setShowCrowd] = useState(true);
   const [theme, setTheme] = useState(STAGE_THEMES.product_launch);
   const [speaking, setSpeaking] = useState(false);
-  const [sfxReady, setSfxReady] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mrRef = useRef<MediaRecorder | null>(null);
@@ -114,8 +186,8 @@ function StageContent() {
   const chunksRef = useRef<Blob[]>([]);
   const sendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadedRef = useRef(false);
-  const ambRef = useRef<AudioContext | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const crowdStopRef = useRef<(() => void) | null>(null);
 
   const convertToWav = async (blob: Blob): Promise<Uint8Array> => {
     const ctx = audioCtxRef.current || new AudioContext();
@@ -170,36 +242,6 @@ function StageContent() {
   }, []);
 
   useEffect(() => {
-    const initAudio = async () => {
-      try {
-        const ctx = new AudioContext();
-        if (ctx.state === 'suspended') await ctx.resume();
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = 800;
-        g.gain.value = 0.001;
-        o.connect(g);
-        g.connect(ctx.destination);
-        o.start();
-        o.stop(ctx.currentTime + 0.05);
-        ctx.close();
-        console.log('[SFX] unlocked');
-      } catch (e) {
-        console.error('[SFX] unlock error:', e);
-      }
-      document.removeEventListener('click', initAudio);
-      document.removeEventListener('keydown', initAudio);
-    };
-    document.addEventListener('click', initAudio);
-    document.addEventListener('keydown', initAudio);
-    return () => {
-      document.removeEventListener('click', initAudio);
-      document.removeEventListener('keydown', initAudio);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!sid || loadedRef.current) return;
     loadedRef.current = true;
 
@@ -209,7 +251,10 @@ function StageContent() {
       setSession(s);
       setTheme(STAGE_THEMES[s.theme] || STAGE_THEMES.product_launch);
       setCrowdWork(s.crowd_work || []);
-      setTimeout(() => playSynth('cheer', 0.4), 100);
+      setTimeout(() => {
+        playSynth('cheer', 0.3);
+        startCrowd(s.intensity || 3);
+      }, 100);
       try {
         const w = await getWelcomeAudio(sid);
         console.log('[Welcome] audio:', w.audio ? 'received' : 'none');
@@ -246,22 +291,16 @@ function StageContent() {
     return () => { ws.close(); stopMic(); };
   }, [sid]);
 
-  const startAmb = (lvl: number) => {
-    if (ambRef.current) return;
-    try {
-      const ctx = new AudioContext(); const gain = ctx.createGain();
-      gain.gain.value = 0.006 + lvl * 0.008; gain.connect(ctx.destination);
-      const buf = ctx.createScriptProcessor(4096, 1, 1); let last = 0;
-      buf.onaudioprocess = (e) => { const o = e.outputBuffer.getChannelData(0); for (let i = 0; i < 4096; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; o[i] = last * 3; } };
-      buf.connect(gain); ambRef.current = ctx;
-    } catch {}
+  const startCrowd = (lvl: number) => {
+    if (crowdStopRef.current) return;
+    crowdStopRef.current = startCrowdAmbience(lvl);
   };
-  const stopAmb = () => {
-    ambRef.current?.close(); ambRef.current = null;
+  const stopCrowd = () => {
+    if (crowdStopRef.current) { crowdStopRef.current(); crowdStopRef.current = null; }
   };
 
   const startMic = useCallback(async () => {
-    stopAmb();
+    stopCrowd();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       msRef.current = stream;
@@ -272,9 +311,9 @@ function StageContent() {
       mrRef.current = mr;
       sendTimerRef.current = setInterval(sendAccumulatedAudio, 3000);
       setRec(true); setShowCrowd(false); setSpeaking(true);
-      if (sfxReady) playSynth('cheer', 0.4);
+      playSynth('cheer', 0.3);
     } catch {}
-  }, [sendAccumulatedAudio, sfxReady]);
+  }, [sendAccumulatedAudio]);
 
   const stopMic = useCallback(() => {
     mrRef.current?.stop();
@@ -283,10 +322,10 @@ function StageContent() {
     sendAccumulatedAudio();
     chunksRef.current = [];
     setRec(false); setSpeaking(false);
-    startAmb(session?.intensity || 3);
+    startCrowd(session?.intensity || 3);
   }, [sendAccumulatedAudio, session?.intensity]);
 
-  const endSession = () => { stopMic(); wsRef.current?.send(JSON.stringify({ type: 'end_session' })); wsRef.current?.close(); stopAmb(); router.push('/'); };
+  const endSession = () => { stopMic(); wsRef.current?.send(JSON.stringify({ type: 'end_session' })); wsRef.current?.close(); stopCrowd(); router.push('/'); };
 
   return (
     <div className="screen" style={{ background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.stage} 100%)`, position: 'relative', overflow: 'hidden' }}>
