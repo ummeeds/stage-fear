@@ -1,456 +1,573 @@
 'use client';
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { getSession, getWelcomeAudio, createWebSocket } from '@/lib/api';
 
-const STAGE_THEMES: Record<string, { bg: string; stage: string; curtain: string; floor: string; spotlight: string }> = {
-  product_launch: { bg: '#0f172a', stage: '#1e3a5f', curtain: '#0c1d33', floor: '#1e293b', spotlight: '#6366f1' },
-  corporate: { bg: '#1a1a24', stage: '#2c3e50', curtain: '#1a252f', floor: '#2c2c3a', spotlight: '#94a3b8' },
-  standup: { bg: '#1a0a0a', stage: '#2c1a1a', curtain: '#8b0000', floor: '#1a1a1a', spotlight: '#ef4444' },
-  stage_show: { bg: '#0a0a1a', stage: '#1a1a3a', curtain: '#4a0e4e', floor: '#2a1a3a', spotlight: '#a855f7' },
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { createWebSocket, getSession, getWelcomeAudio } from '@/lib/api';
+
+const StageGame = dynamic(() => import('@/components/StageGame'), { ssr: false });
+
+type Session = {
+  id: string;
+  topic: string;
+  name: string;
+  theme: string;
+  intensity: number;
+  character: string;
+  crowd_work?: string[];
 };
 
-const CHAR_COLORS: Record<string, { skin: string; shirt: string; pants: string; shoes: string; hair: string }> = {
-  default: { skin: '#ffcc99', shirt: '#6366f1', pants: '#1e293b', shoes: '#334155', hair: '#4a3728' },
-  ninja: { skin: '#ffcc99', shirt: '#1e1e2e', pants: '#1e1e2e', shoes: '#0f0f1a', hair: '#1e1e2e' },
-  robot: { skin: '#94a3b8', shirt: '#64748b', pants: '#475569', shoes: '#334155', hair: '#64748b' },
-  hero: { skin: '#ffcc99', shirt: '#ef4444', pants: '#1e293b', shoes: '#334155', hair: '#f59e0b' },
+type Character = {
+  id: string;
+  hair: string;
+  skin: string;
+  top: string;
+  trim: string;
+  pants: string;
+  shoes: string;
+  accent: string;
 };
 
-const SPEAKER_SPRITE = [
-  [0,0,0,0,1,1,1,1,0,0],
-  [0,0,0,1,1,1,1,1,1,0],
-  [0,0,0,1,2,2,2,2,1,0],
-  [0,0,0,1,2,3,3,2,1,0],
-  [0,0,0,1,2,2,2,2,1,0],
-  [0,0,0,0,1,1,1,1,0,0],
-  [0,0,0,0,0,1,1,0,0,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,0,5,5,5,5,5,0,0],
-  [0,0,0,5,0,0,0,5,0,0],
+type Heckler = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
+}
+
+const CHARACTERS: Character[] = [
+  { id: 'rookie', hair: '#111820', skin: '#f0aa78', top: '#5c2c84', trim: '#b987ff', pants: '#1d2229', shoes: '#f04b6d', accent: '#9a47ff' },
+  { id: 'beanie', hair: '#422014', skin: '#f1a877', top: '#e84863', trim: '#ff95a9', pants: '#2b2f38', shoes: '#ffffff', accent: '#ff5574' },
+  { id: 'prof', hair: '#7a3d1e', skin: '#ebb07d', top: '#27491e', trim: '#6ea64f', pants: '#26313b', shoes: '#e5e0d2', accent: '#5ee04b' },
+  { id: 'blue', hair: '#0b5f9e', skin: '#e99b73', top: '#202326', trim: '#ff4f57', pants: '#202326', shoes: '#f1e7d4', accent: '#23b7ff' },
+  { id: 'flare', hair: '#f1b62f', skin: '#e9a06c', top: '#d16822', trim: '#ffa04b', pants: '#23272e', shoes: '#cfd3da', accent: '#ffb02e' },
+  { id: 'violet', hair: '#723e8e', skin: '#e7a476', top: '#252832', trim: '#9e58ff', pants: '#171a22', shoes: '#e8e0ff', accent: '#b75cff' },
 ];
 
-const CROWD_SPRITE = [
-  [0,0,0,0,1,1,1,1,0,0],
-  [0,0,0,1,1,1,1,1,1,0],
-  [0,0,0,1,2,2,2,2,1,0],
-  [0,0,0,1,2,3,3,2,1,0],
-  [0,0,0,1,2,2,2,2,1,0],
-  [0,0,0,0,1,1,1,1,0,0],
-  [0,0,0,0,0,1,1,0,0,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,4,4,4,4,4,4,4,0],
-  [0,0,0,5,5,5,5,5,0,0],
-  [0,0,0,5,0,0,0,5,0,0],
+const HECKLERS: Heckler[] = [
+  { id: 'skeptic', name: 'Skeptic', color: '#61e02d' },
+  { id: 'teen', name: 'Bored Teen', color: '#22b9f2' },
+  { id: 'know_it_all', name: 'Know-It-All', color: '#ffcc25' },
+  { id: 'classic_heckler', name: 'Classic Heckler', color: '#ff352d' },
+  { id: 'nervous', name: 'Nervous One', color: '#a54cff' },
+  { id: 'critic', name: 'Critic', color: '#d7d9df' },
 ];
 
-function Pix({ sprite, colors, size = 3, glow = false, mic = false }: { sprite: number[][]; colors: Record<string, string>; size?: number; glow?: boolean; mic?: boolean }) {
-  const colorMap: Record<number, string> = {
-    0: 'transparent',
-    1: colors.hair,
-    2: colors.skin,
-    3: colors.shirt,
-    4: colors.shirt,
-    5: colors.pants,
-  };
+const THEME_NAMES: Record<string, string> = {
+  product_launch: 'Product Launch',
+  corporate: 'Corporate Meeting',
+  standup: 'Standup Comedy',
+  stage_show: 'Stage Show',
+};
+
+function PixelAvatar({ character, live = false }: { character: Character; live?: boolean }) {
+  const spriteIndex = Math.max(0, CHARACTERS.findIndex((item) => item.id === character.id));
+
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <div
-        className="pixel-char"
-        style={{
-          gridTemplateColumns: `repeat(${sprite[0].length}, ${size}px)`,
-          gridTemplateRows: `repeat(${sprite.length}, ${size}px)`,
-          filter: glow ? `drop-shadow(0 0 8px ${colors.shirt})` : 'none',
-        }}
-      >
-        {sprite.flat().map((c, i) => (
-          <div key={i} style={{ background: colorMap[c] || 'transparent' }} />
-        ))}
-      </div>
-      {mic && (
-        <div style={{ position: 'absolute', right: -8, top: 12, width: 4, height: 16, background: '#64748b', borderRadius: 2 }}>
-          <div style={{ width: 6, height: 6, background: '#94a3b8', borderRadius: '50%', position: 'absolute', top: -3, left: -1 }} />
-        </div>
-      )}
+    <div
+      className={`sprite-shell sprite-large generated-character stage-avatar ${live ? 'is-live' : ''}`}
+      style={{ ['--sprite-x' as string]: `${spriteIndex * 20}%` }}
+      aria-label={character.id}
+      role="img"
+    >
+      <span />
     </div>
   );
 }
 
-let globalAudioCtx: AudioContext | null = null;
-function getAudioCtx(): AudioContext {
-  if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
-    globalAudioCtx = new AudioContext();
-  }
-  if (globalAudioCtx.state === 'suspended') {
-    globalAudioCtx.resume().catch(() => {});
-  }
-  return globalAudioCtx;
+function SoundGlyph() {
+  return <span className="sound-glyph"><i /><b /></span>;
 }
 
-function playBooSound() {
+function playTone(kind: 'boo' | 'cheer') {
   try {
-    const ctx = getAudioCtx();
-    const now = ctx.currentTime;
-    const master = ctx.createGain();
-    master.gain.value = 0.25;
-    master.connect(ctx.destination);
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(200, now);
-    o.frequency.linearRampToValueAtTime(80, now + 0.5);
-    g.gain.setValueAtTime(0.3, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-    o.connect(g);
-    g.connect(master);
-    o.start(now);
-    o.stop(now + 0.6);
-  } catch {}
-}
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContextClass();
+    const gain = ctx.createGain();
+    gain.gain.value = kind === 'boo' ? 0.24 : 0.16;
+    gain.connect(ctx.destination);
 
-function playCheerSound() {
-  try {
-    const ctx = getAudioCtx();
-    const now = ctx.currentTime;
-    const master = ctx.createGain();
-    master.gain.value = 0.2;
-    master.connect(ctx.destination);
-    [523, 659, 784, 1047].forEach((freq, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = freq;
-      const t = now + i * 0.12;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.25, t + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-      o.connect(g);
-      g.connect(master);
-      o.start(t);
-      o.stop(t + 1.2);
+    const notes = kind === 'boo' ? [180, 132, 92] : [392, 523, 659, 784];
+    notes.forEach((frequency, index) => {
+      const osc = ctx.createOscillator();
+      const envelope = ctx.createGain();
+      const start = ctx.currentTime + index * 0.1;
+      osc.type = kind === 'boo' ? 'sawtooth' : 'square';
+      osc.frequency.setValueAtTime(frequency, start);
+      envelope.gain.setValueAtTime(0.001, start);
+      envelope.gain.linearRampToValueAtTime(0.28, start + 0.04);
+      envelope.gain.exponentialRampToValueAtTime(0.001, start + 0.42);
+      osc.connect(envelope);
+      envelope.connect(gain);
+      osc.start(start);
+      osc.stop(start + 0.46);
     });
+
+    setTimeout(() => ctx.close().catch(() => undefined), 1200);
   } catch {}
 }
 
 function StageContent() {
-  const sp = useSearchParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const sid = sp.get('id');
-  const speakerName = sp.get('name') || 'Speaker';
-  const characterId = sp.get('character') || 'default';
-  const charColors = CHAR_COLORS[characterId] || CHAR_COLORS.default;
+  const sessionId = searchParams.get('id') || '';
+  const soundEnabled = searchParams.get('sound') !== 'false';
+  const crowdLevel = searchParams.get('crowd') || 'medium';
+  const characterId = searchParams.get('character') || 'rookie';
 
-  const [session, setSession] = useState<any>(null);
-  const [rec, setRec] = useState(false);
-  const [conn, setConn] = useState(false);
-  const [hIdx, setHIdx] = useState<number | null>(null);
-  const [lastH, setLastH] = useState('');
-  const [lastHPersona, setLastHPersona] = useState('');
+  const [session, setSession] = useState<Session | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [phase, setPhase] = useState<'enter' | 'announce' | 'ready'>('enter');
   const [transcript, setTranscript] = useState<string[]>([]);
+  const [activeHeckler, setActiveHeckler] = useState<string | null>(null);
+  const [heckle, setHeckle] = useState<{ persona: string; text: string } | null>(null);
   const [crowdWork, setCrowdWork] = useState<string[]>([]);
-  const [showCrowd, setShowCrowd] = useState(true);
-  const [theme, setTheme] = useState(STAGE_THEMES.product_launch);
-  const [speaking, setSpeaking] = useState(false);
-  const [stagePhase, setStagePhase] = useState<'entering' | 'spotlight' | 'crowd' | 'ready'>('entering');
-  const [welcomeDone, setWelcomeDone] = useState(false);
+  const [status, setStatus] = useState('Loading stage...');
+  const [effectsVolume, setEffectsVolume] = useState(0.9);
+  const [stageCrowdVolume, setStageCrowdVolume] = useState(
+    crowdLevel === 'high' ? 0.58 : crowdLevel === 'low' ? 0.24 : 0.42,
+  );
+  const [micLevel, setMicLevel] = useState(0);
+  const [gateState, setGateState] = useState<'idle' | 'quiet' | 'hearing' | 'sent'>('idle');
 
   const wsRef = useRef<WebSocket | null>(null);
-  const mrRef = useRef<MediaRecorder | null>(null);
-  const msRef = useRef<MediaStream | null>(null);
-  const transEnd = useRef<HTMLDivElement>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const sendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordingActiveRef = useRef(false);
+  const segmentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const segmentLevelsRef = useRef<number[]>([]);
+  const ambienceRef = useRef<HTMLAudioElement | null>(null);
   const loadedRef = useRef(false);
-  const wsInitRef = useRef(false);
-  const crowdAudioRef = useRef<HTMLAudioElement | null>(null);
-  const crowdStopRef = useRef<(() => void) | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  const sendAccumulatedAudio = useCallback(() => {
-    if (chunksRef.current.length === 0 || wsRef.current?.readyState !== WebSocket.OPEN) return;
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-    chunksRef.current = [];
-    const r = new FileReader();
-    r.onloadend = () => {
-      const b64 = (r.result as string).split(',')[1];
-      wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio: b64 }));
-    };
-    r.readAsDataURL(blob);
+  const character = useMemo(
+    () => CHARACTERS.find((item) => item.id === characterId) || CHARACTERS[0],
+    [characterId],
+  );
+
+  const playMP3 = useCallback((base64Audio?: string | null, onFailed?: () => void) => {
+    if (!base64Audio || !soundEnabled) return false;
+    try {
+      const binary = atob(base64Audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+      const audio = new Audio(url);
+      audio.volume = effectsVolume;
+      const ambience = ambienceRef.current;
+      const previousAmbienceVolume = ambience?.volume;
+      if (ambience && typeof previousAmbienceVolume === 'number') {
+        ambience.volume = Math.min(previousAmbienceVolume, Math.max(0.08, stageCrowdVolume * 0.38));
+      }
+      const restoreAmbience = () => {
+        if (ambience && typeof previousAmbienceVolume === 'number') ambience.volume = previousAmbienceVolume;
+      };
+      audio.onended = restoreAmbience;
+      audio.onerror = () => {
+        restoreAmbience();
+        onFailed?.();
+      };
+      audio.play().catch(() => {
+        restoreAmbience();
+        onFailed?.();
+      });
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      return true;
+    } catch {
+      onFailed?.();
+      return false;
+    }
+  }, [effectsVolume, soundEnabled, stageCrowdVolume]);
+
+  const speakFallback = useCallback((text: string, persona?: string) => {
+    if (!soundEnabled || !('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    const style = {
+      skeptic: { rate: 0.94, pitch: 0.84 },
+      teen: { rate: 1.16, pitch: 1.08 },
+      know_it_all: { rate: 1.02, pitch: 1.0 },
+      classic_heckler: { rate: 1.12, pitch: 0.72 },
+      nervous: { rate: 1.22, pitch: 1.28 },
+      critic: { rate: 0.88, pitch: 0.72 },
+    }[persona || 'classic_heckler'] || { rate: 1.04, pitch: 0.9 };
+    utterance.rate = style.rate;
+    utterance.pitch = style.pitch;
+    utterance.volume = effectsVolume;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [effectsVolume, soundEnabled]);
+
+  const playStageSfx = useCallback((src: string, volume = effectsVolume) => {
+    if (!soundEnabled) return false;
+    try {
+      const audio = new Audio(src);
+      audio.volume = Math.max(0, Math.min(1, volume));
+      audio.play().catch(() => undefined);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [effectsVolume, soundEnabled]);
+
+  const startAmbience = useCallback(() => {
+    if (!soundEnabled || ambienceRef.current) return;
+    const audio = new Audio('/sfx/crowd-ambience.mp3');
+    audio.loop = true;
+    audio.volume = stageCrowdVolume;
+    ambienceRef.current = audio;
+    audio.play().catch(() => undefined);
+  }, [soundEnabled, stageCrowdVolume]);
+
+  const stopAmbience = useCallback(() => {
+    ambienceRef.current?.pause();
+    ambienceRef.current = null;
   }, []);
 
-  // Stage entrance animation sequence
   useEffect(() => {
-    if (!sid || loadedRef.current) return;
+    if (ambienceRef.current) ambienceRef.current.volume = soundEnabled ? stageCrowdVolume : 0;
+  }, [soundEnabled, stageCrowdVolume]);
+
+  const sendAudioBlob = useCallback((blob: Blob, mimeType: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || blob.size === 0) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      const audio = result.includes(',') ? result.split(',')[1] : result;
+      wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio, mime_type: mimeType }));
+    };
+    reader.readAsDataURL(blob);
+  }, []);
+
+  const startVoiceMeter = useCallback((stream: MediaStream) => {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioContextClass();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.18;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      audioContextRef.current = ctx;
+      analyserRef.current = analyser;
+
+      const samples = new Uint8Array(analyser.fftSize);
+      levelTimerRef.current = setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let index = 0; index < samples.length; index += 1) {
+          const value = (samples[index] - 128) / 128;
+          sum += value * value;
+        }
+        const rms = Math.sqrt(sum / samples.length);
+        segmentLevelsRef.current.push(rms);
+        setMicLevel(Math.min(1, rms * 18));
+        if (recordingActiveRef.current) setGateState(rms > 0.018 ? 'hearing' : 'quiet');
+      }, 80);
+    } catch {
+      analyserRef.current = null;
+    }
+  }, []);
+
+  const stopVoiceMeter = useCallback(() => {
+    if (levelTimerRef.current) clearInterval(levelTimerRef.current);
+    levelTimerRef.current = null;
+    analyserRef.current = null;
+    audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+    segmentLevelsRef.current = [];
+    setMicLevel(0);
+    setGateState('idle');
+  }, []);
+
+  const segmentHasVoice = useCallback(() => {
+    if (!analyserRef.current) return true;
+    const levels = segmentLevelsRef.current;
+    if (levels.length < 6) return false;
+    const max = Math.max(...levels);
+    const avg = levels.reduce((total, level) => total + level, 0) / levels.length;
+    const activeFrames = levels.filter((level) => level > 0.018).length;
+    const hasVoice = max > 0.028 && avg > 0.006 && activeFrames >= 4;
+    setGateState(hasVoice ? 'sent' : 'quiet');
+    return hasVoice;
+  }, []);
+
+  const startRecordingSegment = useCallback(function recordSegment() {
+    if (!recordingActiveRef.current || !streamRef.current) return;
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    const chunks: Blob[] = [];
+    segmentLevelsRef.current = [];
+    const recorder = new MediaRecorder(streamRef.current, { mimeType });
+    mediaRecorderRef.current = recorder;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+
+    recorder.onstop = () => {
+      if (chunks.length > 0 && segmentHasVoice()) {
+        sendAudioBlob(new Blob(chunks, { type: mimeType }), mimeType);
+      }
+      if (recordingActiveRef.current) {
+        segmentTimeoutRef.current = setTimeout(recordSegment, 120);
+      }
+    };
+
+    recorder.start();
+    segmentTimeoutRef.current = setTimeout(() => {
+      if (recorder.state === 'recording') recorder.stop();
+    }, 3200);
+  }, [segmentHasVoice, sendAudioBlob]);
+
+  useEffect(() => {
+    if (!sessionId || loadedRef.current) return;
     loadedRef.current = true;
 
-    const loadSession = async () => {
-      const s = await getSession(sid);
-      setSession(s);
-      setTheme(STAGE_THEMES[s.theme] || STAGE_THEMES.product_launch);
-      setCrowdWork(s.crowd_work || []);
-
-      // Phase 1: Character walks on stage (2.5s)
-      setTimeout(() => {
-        // Phase 2: Spotlight follows (1s)
-        setStagePhase('spotlight');
-        setTimeout(() => {
-          // Phase 3: Crowd reveals (0.8s)
-          setStagePhase('crowd');
-          setTimeout(() => {
-            // Phase 4: Ready - play welcome
-            setStagePhase('ready');
-            playCheerSound();
-            startCrowdAmbience(s.intensity || 3);
-          }, 800);
-        }, 1000);
-      }, 2500);
-
-      // Welcome audio after entrance
+    const load = async () => {
       try {
-        const w = await getWelcomeAudio(sid);
-        if (w.audio) {
-          const welcome = new Audio(`data:audio/mp3;base64,${w.audio}`);
-          welcome.volume = 0.8;
-          welcome.onended = () => {
-            setWelcomeDone(true);
-            // Play crowd cheer MP3 after welcome
-            const cheer = new Audio('/sfx/crowd-cheer.mp3');
-            cheer.volume = 0.5;
-            cheer.play().catch(() => {});
-          };
-          welcome.play().catch(() => {});
-        }
-      } catch (e) {
-        console.error('[Welcome] error:', e);
+        const data = await getSession(sessionId);
+        setSession(data);
+        setCrowdWork(data.crowd_work || []);
+        setStatus('Walking on stage...');
+
+        setTimeout(() => {
+          setPhase('announce');
+          setStatus('Announcer warming up...');
+        }, 3050);
+
+        setTimeout(async () => {
+          try {
+            const welcome = await getWelcomeAudio(sessionId);
+            if (welcome.audio && soundEnabled) {
+              const audio = new Audio(`data:audio/mpeg;base64,${welcome.audio}`);
+              audio.volume = 0.86 * effectsVolume;
+              audio.onended = () => {
+                setPhase('ready');
+                setStatus('Mic check ready.');
+                startAmbience();
+                playStageSfx('/sfx/crowd-cheer.mp3', Math.min(1, effectsVolume * 0.7)) || (soundEnabled && playTone('cheer'));
+              };
+              audio.play().catch(() => {
+                setPhase('ready');
+                setStatus('Mic check ready.');
+                startAmbience();
+              });
+            } else {
+              setPhase('ready');
+              setStatus('Mic check ready.');
+              startAmbience();
+            }
+          } catch {
+            setPhase('ready');
+            setStatus('Mic check ready.');
+            startAmbience();
+          }
+        }, 3950);
+      } catch {
+        setStatus('Session not found.');
       }
     };
-    loadSession();
-  }, [sid]);
 
-  // WebSocket connection
+    load();
+  }, [effectsVolume, playStageSfx, sessionId, soundEnabled, startAmbience]);
+
   useEffect(() => {
-    if (!sid || wsInitRef.current) return;
-    wsInitRef.current = true;
-    const ws = createWebSocket(sid);
+    if (!sessionId) return;
+    const ws = createWebSocket(sessionId);
     wsRef.current = ws;
-    ws.onopen = () => { setConn(true); };
-    ws.onclose = () => { setConn(false); };
-    ws.onerror = (e) => console.error('[WS] error:', e);
-    ws.onmessage = ev => {
-      const d = JSON.parse(ev.data);
-      if (d.type === 'transcript') {
-        setTranscript(prev => { const n = [...prev, d.text]; return n.slice(-25); });
-        setTimeout(() => transEnd.current?.scrollIntoView({ behavior: 'smooth' }), 30);
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'transcript') {
+        setTranscript((lines) => [...lines, data.text].slice(-14));
+        setTimeout(() => transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 20);
       }
-      if (d.type === 'heckle') {
-        setLastH(d.text);
-        setLastHPersona(d.persona);
-        setHIdx(d.position);
-        playMP3(d.audio);
-        playBooSound();
-        setTimeout(() => { setHIdx(null); setLastH(''); setLastHPersona(''); }, 4000);
+      if (data.type === 'heckle') {
+        const persona = data.persona || 'classic_heckler';
+        setActiveHeckler(persona);
+        setHeckle({ persona, text: data.text });
+        const startedAudio = playMP3(data.audio, () => speakFallback(data.text, persona));
+        if (!startedAudio) speakFallback(data.text, persona);
+        const reactionChance = Math.min(0.46, 0.18 + (session?.intensity || 3) * 0.045);
+        if (Math.random() < reactionChance) {
+          window.setTimeout(() => {
+            playStageSfx('/sfx/crowd-boo.mp3', Math.min(0.38, effectsVolume * 0.34)) || (soundEnabled && playTone('boo'));
+          }, 600 + Math.random() * 950);
+        }
+        setTimeout(() => {
+          setActiveHeckler(null);
+          setHeckle(null);
+        }, 4600);
       }
     };
-    return () => { try { ws.close(); } catch {} };
-  }, [sid]);
-
-  const startCrowdAmbience = (intensity: number) => {
-    try {
-      const audio = new Audio('/sfx/crowd-ambience.mp3');
-      audio.loop = true;
-      audio.volume = 0.15 + intensity * 0.03;
-      audio.play().catch(() => {});
-      crowdAudioRef.current = audio;
-    } catch {}
-  };
-
-  const stopCrowdAmbience = () => {
-    if (crowdAudioRef.current) {
-      crowdAudioRef.current.pause();
-      crowdAudioRef.current = null;
-    }
-  };
+    return () => {
+      try {
+        ws.close();
+      } catch {}
+    };
+  }, [effectsVolume, playMP3, playStageSfx, session?.intensity, sessionId, soundEnabled, speakFallback]);
 
   const startMic = useCallback(async () => {
-    stopCrowdAmbience();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      msRef.current = stream;
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.start();
-      mrRef.current = mr;
-      sendTimerRef.current = setInterval(sendAccumulatedAudio, 2500);
-      setRec(true);
-      setShowCrowd(false);
-      setSpeaking(true);
-      // Immediate first heckle
-      setTimeout(() => {
-        setLastH("Oh great, another one...");
-        setLastHPersona("classic_heckler");
-        setHIdx(Math.floor(Math.random() * 24));
-        playBooSound();
-        setTimeout(() => { setHIdx(null); setLastH(''); setLastHPersona(''); }, 4000);
-      }, 1000);
-    } catch (e) {
-      console.error('[Mic] error:', e);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      streamRef.current = stream;
+      startVoiceMeter(stream);
+      recordingActiveRef.current = true;
+      setRecording(true);
+      setGateState('quiet');
+      setStatus('Live. Keep talking through the interruptions.');
+      startAmbience();
+      startRecordingSegment();
+    } catch {
+      setStatus('Mic permission failed.');
+      startAmbience();
     }
-  }, [sendAccumulatedAudio]);
+  }, [startAmbience, startRecordingSegment, startVoiceMeter]);
 
   const stopMic = useCallback(() => {
-    mrRef.current?.stop();
-    msRef.current?.getTracks().forEach(t => t.stop());
-    if (sendTimerRef.current) { clearInterval(sendTimerRef.current); sendTimerRef.current = null; }
-    sendAccumulatedAudio();
-    chunksRef.current = [];
-    setRec(false);
-    setSpeaking(false);
-    startCrowdAmbience(session?.intensity || 3);
-  }, [sendAccumulatedAudio, session?.intensity]);
+    recordingActiveRef.current = false;
+    if (segmentTimeoutRef.current) clearTimeout(segmentTimeoutRef.current);
+    segmentTimeoutRef.current = null;
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    setTimeout(() => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      stopVoiceMeter();
+    }, 250);
+    setRecording(false);
+    setGateState('idle');
+    setStatus('Paused. Crowd ambience stays live.');
+    startAmbience();
+  }, [startAmbience, stopVoiceMeter]);
 
-  const endSession = () => {
+  const exitStage = () => {
     stopMic();
-    stopCrowdAmbience();
+    stopAmbience();
     wsRef.current?.send(JSON.stringify({ type: 'end_session' }));
-    try { wsRef.current?.close(); } catch {}
+    try {
+      wsRef.current?.close();
+    } catch {}
     router.push('/');
   };
 
-  const playMP3 = (b64: string | null) => {
-    if (!b64) return;
-    try {
-      const bin = atob(b64);
-      const buf = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mp3' }));
-      const a = new Audio(url);
-      a.volume = 0.8;
-      a.play().catch(() => {});
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch {}
-  };
+  const activeHecklerName = HECKLERS.find((item) => item.id === activeHeckler)?.name || heckle?.persona.replace(/_/g, ' ');
+  const themeTitle = THEME_NAMES[session?.theme || 'product_launch'];
+  const characterIndex = Math.max(0, CHARACTERS.findIndex((item) => item.id === character.id));
 
   return (
-    <div className="relative w-full h-screen overflow-hidden" style={{ background: `linear-gradient(180deg, ${theme.bg} 0%, ${theme.stage} 100%)` }}>
-      {/* Curtains */}
-      <div style={{ position: 'absolute', top: 0, left: 0, width: '5%', height: '70%', background: `linear-gradient(90deg, ${theme.curtain}, ${theme.curtain}cc)`, zIndex: 15 }} />
-      <div style={{ position: 'absolute', top: 0, right: 0, width: '5%', height: '70%', background: `linear-gradient(270deg, ${theme.curtain}, ${theme.curtain}cc)`, zIndex: 15 }} />
+    <main className={`live-stage theme-${session?.theme || 'product_launch'}`}>
+      <div className="scanlines" />
+      <header className="stage-hud">
+        <div className="hud-brand">Stage Fear</div>
+        <div className="hud-topic">{session?.topic || 'Loading topic'}</div>
+        <button onClick={exitStage}>Exit</button>
+      </header>
 
-      {/* Stage */}
-      <div style={{ position: 'absolute', bottom: '30%', left: '5%', right: '5%', height: 'clamp(60px, 12vw, 120px)', background: `linear-gradient(180deg, ${theme.stage} 0%, ${theme.floor} 100%)`, borderTop: `4px solid ${theme.spotlight}`, boxShadow: `0 0 80px ${theme.spotlight}33`, borderRadius: '8px 8px 0 0', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {/* Spotlight */}
-        {stagePhase !== 'entering' && (
-          <div style={{ position: 'absolute', top: -1, left: '50%', width: 'clamp(80px, 25vw, 200px)', height: 4, background: theme.spotlight, boxShadow: `0 0 40px ${theme.spotlight}`, animation: stagePhase === 'spotlight' ? 'spotlight 1s ease-out forwards' : 'none', opacity: stagePhase === 'spotlight' ? 0 : 1, transform: 'translateX(-50%)' }} />
-        )}
-        {/* Speaker character */}
-        <div style={{ animation: stagePhase === 'entering' ? 'walk 2.5s ease-out forwards' : speaking ? 'float 0.5s ease-in-out infinite' : 'float 2.5s ease-in-out infinite', transform: stagePhase === 'entering' ? 'none' : 'scale(2)', filter: `drop-shadow(0 0 ${speaking ? '15px' : '8px'} ${theme.spotlight})` }}>
-          <Pix sprite={SPEAKER_SPRITE} colors={charColors} size={4} glow={speaking} mic={stagePhase !== 'entering'} />
-        </div>
-        {/* LIVE indicator */}
-        {speaking && (
-          <div style={{ position: 'absolute', bottom: 4, fontSize: 7, fontFamily: "'Press Start 2P', monospace", color: '#22c55e', animation: 'blink 1s infinite' }}>LIVE</div>
-        )}
-      </div>
+      <section className="stage-scene">
+        <StageGame
+          characterIndex={characterIndex}
+          activeHeckler={activeHeckler}
+          recording={recording}
+          phase={phase}
+          themeTitle={themeTitle}
+        />
 
-      {/* Floor / Crowd area */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '30%', background: `linear-gradient(180deg, ${theme.floor}88 0%, #060606 100%)`, zIndex: 5, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '4px 8px', gap: 2, opacity: stagePhase === 'crowd' || stagePhase === 'ready' ? 1 : 0, animation: stagePhase === 'crowd' ? 'crowdReveal 0.8s ease-out forwards' : 'none' }}>
-        {[0, 1, 2].map(row => (
-          <div key={row} style={{ display: 'flex', justifyContent: 'space-evenly', opacity: 0.4 + row * 0.25 }}>
-            {[0, 1, 2, 3, 4, 5, 6, 7].map(col => {
-              const idx = row * 8 + col;
-              const crowdColors = { skin: '#ffcc99', shirt: ['#6366f1', '#ef4444', '#22c55e', '#f59e0b', '#a855f7'][idx % 5], pants: '#1e293b', shoes: '#334155', hair: '#4a3728' };
-              return (
-                <div key={col} style={{ animation: hIdx === idx ? 'shake 0.15s ease-in-out infinite' : `float ${2.5 + idx * 0.2}s ease-in-out infinite` }}>
-                  <Pix sprite={CROWD_SPRITE} colors={crowdColors} size={2.5} glow={hIdx === idx} />
-                </div>
-              );
-            })}
+        {heckle && (
+          <div className="heckle-bubble">
+            <b>{activeHecklerName}</b>
+            <span>{heckle.text}</span>
           </div>
-        ))}
-      </div>
+        )}
 
-      {/* Transcript box */}
-      <div style={{ position: 'absolute', top: '6%', left: '50%', transform: 'translateX(-50%)', width: 'clamp(260px, 70vw, 500px)', zIndex: 25 }}>
-        <div style={{ background: '#0f172acc', border: '2px solid #334155', borderRadius: 8, padding: '8px 12px', maxHeight: 'clamp(80px, 16vh, 140px)', overflowY: 'auto', scrollbarWidth: 'none' }}>
-          {transcript.length === 0 ? (
-            <div style={{ fontSize: 9, color: '#475569', textAlign: 'center', padding: '12px 0', fontFamily: "'Press Start 2P', monospace" }}>&gt; WAITING...</div>
-          ) : (
-            transcript.map((line, i) => (
-              <div key={i} style={{ fontSize: 9, color: i === transcript.length - 1 ? '#6366f1' : '#64748b', fontFamily: "'Press Start 2P', monospace", padding: '2px 0', lineHeight: 1.8 }}>
-                &gt; {line}
-              </div>
-            ))
-          )}
-          <div ref={transEnd} />
-        </div>
-      </div>
-
-      {/* Heckle display */}
-      {lastH && (
-        <div style={{ position: 'absolute', top: '24%', left: '50%', transform: 'translateX(-50%)', zIndex: 35, animation: 'slideDown 0.3s ease-out', pointerEvents: 'none' }}>
-          <div style={{ background: '#1e293b', border: '2px solid #f59e0b', padding: '8px 16px', fontSize: 10, color: '#f59e0b', fontFamily: "'Press Start 2P', monospace", textAlign: 'center', maxWidth: 'clamp(220px, 55vw, 460px)', boxShadow: '0 0 30px #f59e0b33', borderRadius: 8 }}>
-            <div style={{ fontSize: 7, color: '#94a3b8', marginBottom: 4 }}>{lastHPersona.replace(/_/g, ' ')}</div>
-            {lastH}
+        {phase !== 'ready' && (
+          <div className="announcer-card">
+            <b>{status}</b>
+            <span>{session?.name || searchParams.get('name') || 'Speaker'} enters the room.</span>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Top bar */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, background: conn ? '#22c55e' : '#ef4444', borderRadius: '50%', animation: conn ? 'blink 1.5s infinite' : 'none' }} />
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, color: '#64748b' }}>{conn ? 'LIVE' : 'OFF'}</span>
-        </div>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, color: '#475569', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{speakerName}</span>
-        <button onClick={endSession} style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: '4px 10px', background: '#7f1d1d', border: '1px solid #ef4444', color: '#fca5a5', borderRadius: 4, cursor: 'pointer' }}>EXIT</button>
-      </div>
+        {phase === 'ready' && crowdWork.length > 0 && transcript.length === 0 && (
+          <div className="crowd-work">
+            {crowdWork.slice(0, 3).map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}
+          </div>
+        )}
+      </section>
 
-      {/* Crowd work overlay */}
-      {showCrowd && crowdWork.length > 0 && stagePhase === 'ready' && !welcomeDone && (
-        <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 50, display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'center' }}>
-          <h3 style={{ fontSize: 11, color: '#f59e0b', fontFamily: "'Press Start 2P', monospace" }}>CROWD REACTS</h3>
-          {crowdWork.map((m, i) => (
-            <div key={i} style={{ fontSize: 9, fontFamily: "'Press Start 2P', monospace", animation: `slideUp 0.4s ease-out ${i * 0.3}s both`, maxWidth: 'clamp(220px, 50vw, 360px)', background: '#1e293bcc', border: '1px solid #334155', padding: '8px 12px', borderRadius: 8, color: '#e2e8f0' }}>
-              {m}
-            </div>
-          ))}
+      <aside className="transcript-console">
+        <header>
+          <span>{recording ? 'Realtime STT' : 'Transcript'}</span>
+          <b>{recording ? 'Recording' : 'Paused'}</b>
+        </header>
+        <div>
+          {transcript.length === 0 ? <p>&gt; Waiting for your first line...</p> : transcript.map((line, index) => <p key={`${line}-${index}`}>&gt; {line}</p>)}
+          <div ref={transcriptEndRef} />
         </div>
-      )}
+      </aside>
 
-      {/* Mic button */}
-      {stagePhase === 'ready' && (
-        <div style={{ position: 'absolute', bottom: '34%', left: '50%', transform: 'translateX(-50%)', zIndex: 30 }}>
-          {!rec ? (
-            <button onClick={startMic} style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, padding: '12px 24px', background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8, cursor: 'pointer', boxShadow: '0 0 40px #22c55e55', animation: 'pulse 2s ease-in-out infinite' }}>
-              START SPEAKING
-            </button>
-          ) : (
-            <button onClick={stopMic} style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, padding: '12px 24px', background: '#ef4444', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer' }}>
-              STOP
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Intensity meter */}
-      <div style={{ position: 'absolute', top: '48%', right: 8, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 2, zIndex: 20 }}>
-        {[5, 4, 3, 2, 1].map(lvl => (
-          <div key={lvl} style={{ width: 6, height: 12, background: lvl <= (session?.intensity || 3) ? `hsl(${120 - lvl * 25}, 65%, 50%)` : '#1e293b', border: '1px solid #334155', borderRadius: 2, opacity: lvl <= (session?.intensity || 3) ? 1 : 0.3 }} />
+      <section className="stage-hecklers">
+        {HECKLERS.map((heckler) => (
+          <article key={heckler.id} className={activeHeckler === heckler.id ? 'is-active' : ''} style={{ ['--heckler' as string]: heckler.color }}>
+            <span>{heckler.name}</span>
+            <SoundGlyph />
+          </article>
         ))}
-      </div>
-    </div>
+      </section>
+
+      <footer className="stage-controls">
+        <div>
+          <b>{status}</b>
+          <span>Intensity {session?.intensity || 3}/5</span>
+        </div>
+        <div className={`mic-readout is-${gateState}`}>
+          <span>{gateState === 'sent' ? 'STT sent' : gateState === 'hearing' ? 'Voice detected' : gateState === 'quiet' ? 'Speak louder' : 'Mic idle'}</span>
+          <i>
+            <b style={{ width: `${Math.max(4, Math.round(micLevel * 100))}%` }} />
+          </i>
+        </div>
+        <label className="stage-mix">
+          <span>Crowd</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={stageCrowdVolume}
+            onChange={(event) => setStageCrowdVolume(Number(event.target.value))}
+          />
+        </label>
+        <label className="stage-mix">
+          <span>Voices</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={effectsVolume}
+            onChange={(event) => setEffectsVolume(Number(event.target.value))}
+          />
+        </label>
+        {phase === 'ready' && (
+          <button className={recording ? 'stop' : 'start'} onClick={recording ? stopMic : startMic}>
+            {recording ? 'Stop Mic' : 'Start Speaking'}
+          </button>
+        )}
+      </footer>
+    </main>
   );
 }
 
 export default function StagePage() {
   return (
-    <Suspense fallback={
-      <div className="w-full h-screen flex items-center justify-center bg-slate-900">
-        <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, color: '#475569', animation: 'blink 1s infinite' }}>LOADING...</div>
-      </div>
-    }>
+    <Suspense fallback={<main className="loading-stage">Loading Stage...</main>}>
       <StageContent />
     </Suspense>
   );

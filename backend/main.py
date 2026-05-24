@@ -3,6 +3,8 @@ import random
 import base64
 import logging
 import time
+import re
+import unicodedata
 from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +36,66 @@ WELCOME_TEMPLATES = {
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+NOISE_TRANSCRIPT_RE = re.compile(
+    r"[\(\[][^)\]]*(mechanical|sound|sounds|noise|music|pause|video|playing|ringtone|llamada|tono|silence|click|beep|static)[^)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+NOISE_WORDS_RE = re.compile(
+    r"\b(mechanical sounds?|white noise|melodic music|techno music|video playing|three seconds pause|ringtone|tono de llamada|background music|different microphone|can you(?: guys| all| folks| everyone)? hear me|can everyone hear me|mic check|testing testing|is this thing on|hello hello|mm-?hmm)\b",
+    re.IGNORECASE,
+)
+
+MIC_CHECK_RE = re.compile(
+    r"\b(hello everyone|hi everyone|hey everyone)?\s*(can you(?: guys| all| folks| everyone)? hear me|can everyone hear me|mic check|testing(?:,?\s*testing)?|is this thing on)\b",
+    re.IGNORECASE,
+)
+
+
+def _latin_text_ratio(text: str) -> float:
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return 0.0
+    latin_letters = 0
+    for char in letters:
+        try:
+            if "LATIN" in unicodedata.name(char):
+                latin_letters += 1
+        except ValueError:
+            continue
+    return latin_letters / len(letters)
+
+
+def _speech_words(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z][A-Za-z'-]{1,}", text)
+
+
+def is_user_speech(text: str) -> bool:
+    cleaned = text.strip()
+    if len(cleaned) < 8:
+        return False
+    if NOISE_TRANSCRIPT_RE.search(cleaned) or NOISE_WORDS_RE.search(cleaned) or MIC_CHECK_RE.search(cleaned):
+        return False
+    if _latin_text_ratio(cleaned) < 0.72:
+        return False
+    words = _speech_words(cleaned)
+    if len(words) < 3:
+        return False
+    return True
+
+
+def is_heckle_worthy(text: str) -> bool:
+    if MIC_CHECK_RE.search(text):
+        return False
+    words = _speech_words(text)
+    if len(words) < 8:
+        return False
+    if len(set(word.lower() for word in words)) < 6:
+        return False
+    if len(text.strip()) < 42:
+        return False
+    return True
 
 app = FastAPI(title="Stage Fear - Heckler Backend")
 
@@ -120,7 +182,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
         return
 
     personas = list(HecklerType)
-    last_heckle_time = time.time()
+    last_heckle_time = time.time() - 999
     segment_buffer = ""
     heckle_count = 0
 
@@ -134,30 +196,35 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                     continue
 
                 audio_bytes = base64.b64decode(audio_b64)
+                mime_type = data.get("mime_type", "audio/webm")
                 logger.info(f"Received audio chunk: {len(audio_bytes)} bytes")
-                transcript = await elevenlabs_service.speech_to_text(audio_bytes)
+                transcript = await elevenlabs_service.speech_to_text(audio_bytes, mime_type)
 
                 if transcript and len(transcript.strip()) > 2:
-                    segment_buffer += " " + transcript.strip()
-                    logger.info(f"Transcript: '{transcript.strip()}' | Buffer: {len(segment_buffer.split())} words")
+                    transcript_text = transcript.strip()
+                    if not is_user_speech(transcript_text):
+                        logger.info(f"Ignored non-speech STT: '{transcript_text}'")
+                        continue
+
+                    segment_buffer += " " + transcript_text
+                    logger.info(f"Transcript: '{transcript_text}' | Buffer: {len(_speech_words(segment_buffer))} words")
 
                     await websocket.send_json({
                         "type": "transcript",
-                        "text": transcript.strip(),
+                        "text": transcript_text,
                     })
 
-                    word_count = len(segment_buffer.split())
-                    if word_count >= 5:
+                    word_count = len(_speech_words(segment_buffer))
+                    if is_heckle_worthy(segment_buffer):
                         await add_transcript_segment(session_id, segment_buffer.strip())
 
                         intensity = session.intensity
-                        heckle_chance = intensity / 5.0
-                        cooldown = max(1.0, 5.0 - intensity * 0.6)
+                        cooldown = max(0.8, 4.0 - intensity * 0.55)
 
                         now = time.time()
                         should_heckle = (now - last_heckle_time > cooldown)
 
-                        logger.info(f"Heckle check: words={word_count} intensity={intensity} chance={heckle_chance*0.7:.2f} cooldown={cooldown:.1f}s elapsed={now-last_heckle_time:.1f}s should_heckle={should_heckle}")
+                        logger.info(f"Heckle check: words={word_count} intensity={intensity} cooldown={cooldown:.1f}s elapsed={now-last_heckle_time:.1f}s should_heckle={should_heckle}")
 
                         if should_heckle:
                             last_heckle_time = now
@@ -172,6 +239,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                 previous_heckles=recent,
                                 persona_type=persona,
                                 topic=session.topic,
+                                first_heckle=heckle_count == 1,
                             )
 
                             if heckle_text:
@@ -179,6 +247,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                 audio_bytes_out = await elevenlabs_service.text_to_speech(
                                     text=heckle_text,
                                     voice_id=config["voice_id"],
+                                    voice_settings=config.get("voice_settings"),
                                 )
                                 audio_b64_out = None
                                 if audio_bytes_out:

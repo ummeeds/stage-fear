@@ -33,16 +33,31 @@ class LLMService:
         previous_heckles: list[str],
         persona_type: HecklerType,
         topic: str,
+        first_heckle: bool = False,
     ) -> Optional[str]:
         """Generate an intelligent heckle based on what the speaker just said."""
         config = HECKLER_CONFIG[persona_type]
         recent = "\n".join(previous_heckles[-5:]) if previous_heckles else "(none yet)"
+        first_rule = """
+This is the FIRST heckle of the session. It must directly reference the product/topic and the speaker's concrete pitch.
+If the topic is finance, crypto, AI, marketing, healthcare, education, or another domain, make the joke about that domain.
+Example only: for a finance crypto app, "Oh great, another crypto wallet with trust issues."
+Do not use generic lines like "that doesn't add up" or "get to the point."
+""" if first_heckle else """
+Every heckle must react to the latest concrete point. Avoid generic filler and do not heckle greetings, mic checks, or silence.
+"""
 
         system_prompt = f"""{config['prompt']}
 
 Context:
 - Topic of talk: {topic}
 - Recent heckles from others (do NOT repeat these): {recent}
+- Timing rule: {first_rule}
+
+Rules:
+- Reference at least one concrete noun from the topic or the speaker's latest line.
+- Keep it under 14 words.
+- Make it useful public-speaking pressure, not random abuse.
 
 Respond with ONLY the heckle text, nothing else. No quotes, no explanations."""
 
@@ -51,7 +66,7 @@ Respond with ONLY the heckle text, nothing else. No quotes, no explanations."""
 Generate your heckle now:"""
 
         if not self.client:
-            return self._fallback_heckle(transcript_segment, persona_type)
+            return self._fallback_heckle(transcript_segment, persona_type, topic, first_heckle)
 
         try:
             response = await self.client.chat.completions.create(
@@ -66,12 +81,20 @@ Generate your heckle now:"""
             content = response.choices[0].message.content
             if content:
                 heckle = content.strip().strip('"').strip()
+                generic = (
+                    "doesn't add up" in heckle.lower()
+                    or "that doesn't" in heckle.lower()
+                    or "get to the point" in heckle.lower()
+                    or "what's your evidence" in heckle.lower()
+                )
+                if first_heckle and generic:
+                    return self._fallback_heckle(transcript_segment, persona_type, topic, first_heckle)
                 logger.info(f"LLM heckle ({persona_type.value}): {heckle}")
                 return heckle
-            return self._fallback_heckle(transcript_segment, persona_type)
+            return self._fallback_heckle(transcript_segment, persona_type, topic, first_heckle)
         except Exception as e:
             logger.error(f"LLM error: {e}")
-            return self._fallback_heckle(transcript_segment, persona_type)
+            return self._fallback_heckle(transcript_segment, persona_type, topic, first_heckle)
 
     async def generate_crowd_work(self, topic: str, theme: str) -> list[str]:
         """Generate pre-stage crowd reactions."""
@@ -105,50 +128,62 @@ Keep each under 15 words. Return as JSON array: ["reaction1", "reaction2", "reac
             logger.error(f"LLM crowd work error: {e}")
             return self._fallback_crowd_work(topic)
 
-    def _fallback_heckle(self, transcript: str, persona: HecklerType) -> str:
+    def _fallback_heckle(self, transcript: str, persona: HecklerType, topic: str = "", first_heckle: bool = False) -> str:
         """Fallback heckles when LLM is unavailable."""
+        topic_words = [word for word in topic.split() if len(word) > 3]
+        target = " ".join(topic_words[:3]) if topic_words else "that product"
+        lower = f"{topic} {transcript}".lower()
+        if first_heckle:
+            if "crypto" in lower:
+                return "Oh great, another crypto app asking us to trust it."
+            if "finance" in lower or "fintech" in lower:
+                return "So your finance app fixes money by adding another app?"
+            if "ai" in lower:
+                return "Let me guess, AI that does everyone's job except yours?"
+            return f"So {target} is the big breakthrough we're betting on?"
+
         fallbacks = {
             HecklerType.SKEPTIC: [
-                "But how do you actually know that?",
-                "What's your evidence for that claim?",
+                f"But how do you prove {target} actually works?",
+                f"What's the evidence behind {target}?",
                 "Are you sure about that?",
-                "That doesn't add up logically.",
+                "What assumption are we supposed to accept there?",
                 "Have you considered the opposite?",
             ],
             HecklerType.TEEN: [
-                "This is so mid...",
-                "Cool story, bro.",
-                "I've heard this before.",
+                f"{target} sounds like three apps in a trench coat.",
+                "Cool story, but where's the actual point?",
+                f"I've seen {target} on Product Hunt already.",
                 "Can we skip to the end?",
                 "My phone is more interesting.",
             ],
             HecklerType.KNOW_IT_ALL: [
-                "Actually, that's not quite right.",
-                "Technically speaking, you're wrong.",
+                f"Actually, {target} has a much harder adoption problem.",
+                "Technically, that market is already crowded.",
                 "I read the opposite in a paper.",
                 "Let me correct you on that.",
                 "The real answer is different.",
             ],
             HecklerType.CLASSIC_HECKLER: [
-                "We've been here all day!",
-                "Get to the point!",
-                "My grandmother talks faster!",
-                "Is this a TED talk or a nap?",
-                "Someone get this person water!",
+                f"{target} better have a punchline!",
+                "That pitch needs a seatbelt!",
+                "My grandmother has a clearer roadmap!",
+                "Is this a product launch or a trailer?",
+                "Someone get this pitch some traction!",
             ],
             HecklerType.NERVOUS: [
                 "Are you okay up there?",
-                "You seem really nervous.",
+                f"I'm nervous for {target} already.",
                 "My hands are sweating for you.",
                 "I could never do this.",
                 "Take a deep breath!",
             ],
             HecklerType.CRITIC: [
-                "Your premise is flawed.",
-                "You're missing the key point.",
-                "That argument doesn't hold up.",
-                "Let's break down the logic here.",
-                "The data doesn't support that.",
+                f"The weak point is {target}'s actual differentiation.",
+                "You're missing the adoption risk.",
+                "That argument needs numbers behind it.",
+                "Let's separate the feature from the business.",
+                "The data burden is doing heavy lifting there.",
             ],
         }
         import random
