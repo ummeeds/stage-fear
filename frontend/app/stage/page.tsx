@@ -187,9 +187,13 @@ function StageContent() {
   const sendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadedRef = useRef(false);
   const crowdStopRef = useRef<(() => void) | null>(null);
+  const wsInitRef = useRef(false);
 
   const sendAccumulatedAudio = useCallback(() => {
-    if (chunksRef.current.length === 0 || wsRef.current?.readyState !== WebSocket.OPEN) return;
+    if (chunksRef.current.length === 0 || wsRef.current?.readyState !== WebSocket.OPEN) {
+      console.log('[SEND] skipped: chunks=', chunksRef.current.length, 'ws=', wsRef.current?.readyState);
+      return;
+    }
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     chunksRef.current = [];
     const r = new FileReader();
@@ -198,6 +202,7 @@ function StageContent() {
       wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio: b64 }));
       console.log('[SEND] sent audio, size:', b64.length);
     };
+    r.onerror = () => console.error('[SEND] FileReader error');
     r.readAsDataURL(blob);
   }, []);
 
@@ -219,10 +224,14 @@ function StageContent() {
         const w = await getWelcomeAudio(sid);
         console.log('[Welcome] audio:', w.audio ? 'received' : 'none');
         if (w.audio) {
-          playMP3(w.audio);
-          const a = new Audio('/sfx/crowd-cheer.mp3');
-          a.volume = 0.6;
-          setTimeout(() => a.play().catch(() => {}), 500);
+          const welcome = new Audio(`data:audio/mp3;base64,${w.audio}`);
+          welcome.volume = 0.7;
+          welcome.onended = () => {
+            const crowd = new Audio('/sfx/crowd-cheer.mp3');
+            crowd.volume = 0.6;
+            crowd.play().catch(() => {});
+          };
+          welcome.play().catch(() => {});
         }
       } catch (e) {
         console.error('[Welcome] error:', e);
@@ -232,10 +241,13 @@ function StageContent() {
   }, [sid]);
 
   useEffect(() => {
-    if (!sid) return;
-    const ws = createWebSocket(sid); wsRef.current = ws;
-    ws.onopen = () => setConn(true);
-    ws.onclose = () => setConn(false);
+    if (!sid || wsInitRef.current) return;
+    wsInitRef.current = true;
+    const ws = createWebSocket(sid);
+    wsRef.current = ws;
+    ws.onopen = () => { setConn(true); console.log('[WS] connected'); };
+    ws.onclose = () => { setConn(false); console.log('[WS] closed'); };
+    ws.onerror = (e) => console.error('[WS] error:', e);
     ws.onmessage = ev => {
       const d = JSON.parse(ev.data);
       console.log('[WS] message type:', d.type, d);
@@ -251,7 +263,7 @@ function StageContent() {
         playSynth('boo', 0.1);
       }
     };
-    return () => { ws.close(); stopMic(); };
+    return () => { try { ws.close(); } catch {} };
   }, [sid]);
 
   const startCrowd = (lvl: number) => {
@@ -269,13 +281,27 @@ function StageContent() {
       msRef.current = stream;
       const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm';
       const mr = new MediaRecorder(stream, { mimeType });
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+          console.log('[Mic] chunk collected, size:', e.data.size, 'total:', chunksRef.current.length);
+        }
+      };
       mr.start();
       mrRef.current = mr;
       sendTimerRef.current = setInterval(sendAccumulatedAudio, 3000);
       setRec(true); setShowCrowd(false); setSpeaking(true);
       playSynth('cheer', 0.3);
-    } catch {}
+      // Immediate first heckle
+      setTimeout(() => {
+        setLastH("Oh great, another one...");
+        setHIdx(Math.floor(Math.random() * 24));
+        playSynth('boo', 0.15);
+        setTimeout(() => { setHIdx(null); setLastH(''); }, 3000);
+      }, 800);
+    } catch (e) {
+      console.error('[Mic] error:', e);
+    }
   }, [sendAccumulatedAudio]);
 
   const stopMic = useCallback(() => {
