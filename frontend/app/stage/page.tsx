@@ -186,59 +186,19 @@ function StageContent() {
   const chunksRef = useRef<Blob[]>([]);
   const sendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadedRef = useRef(false);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const crowdStopRef = useRef<(() => void) | null>(null);
 
-  const convertToWav = async (blob: Blob): Promise<Uint8Array> => {
-    const ctx = audioCtxRef.current || new AudioContext();
-    audioCtxRef.current = ctx;
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    const wavBuffer = audioBufferToWav(audioBuffer);
-    return new Uint8Array(wavBuffer);
-  };
-
-  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
-    const numChannels = 1;
-    const sampleRate = buffer.sampleRate;
-    const format = 1;
-    const bitDepth = 16;
-    const bytesPerSample = bitDepth / 8;
-    const blockAlign = numChannels * bytesPerSample;
-    const byteRate = sampleRate * blockAlign;
-    const dataLength = buffer.length * numChannels * bytesPerSample;
-    const headerLength = 44;
-    const totalLength = headerLength + dataLength;
-    const arrayBuffer = new ArrayBuffer(totalLength);
-    const view = new DataView(arrayBuffer);
-    const writeString = (offset: number, str: string) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
-    writeString(0, 'RIFF'); view.setUint32(4, totalLength - 8, true); writeString(8, 'WAVE');
-    writeString(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, format, true);
-    view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitDepth, true); writeString(36, 'data'); view.setUint32(40, dataLength, true);
-    const channelData = buffer.getChannelData(0);
-    let offset = 44;
-    for (let i = 0; i < channelData.length; i++) {
-      const sample = Math.max(-1, Math.min(1, channelData[i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-      offset += 2;
-    }
-    return arrayBuffer;
-  };
-
-  const sendAccumulatedAudio = useCallback(async () => {
+  const sendAccumulatedAudio = useCallback(() => {
     if (chunksRef.current.length === 0 || wsRef.current?.readyState !== WebSocket.OPEN) return;
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     chunksRef.current = [];
-    try {
-      const wavData = await convertToWav(blob);
-      const b64 = btoa(String.fromCharCode(...wavData));
+    const r = new FileReader();
+    r.onloadend = () => {
+      const b64 = (r.result as string).split(',')[1];
       wsRef.current?.send(JSON.stringify({ type: 'audio_chunk', audio: b64 }));
-      console.log('[SEND] sent WAV audio, size:', wavData.length);
-    } catch (e) {
-      console.error('[SEND] conversion error:', e);
-    }
+      console.log('[SEND] sent audio, size:', b64.length);
+    };
+    r.readAsDataURL(blob);
   }, []);
 
   useEffect(() => {
@@ -259,7 +219,10 @@ function StageContent() {
         const w = await getWelcomeAudio(sid);
         console.log('[Welcome] audio:', w.audio ? 'received' : 'none');
         if (w.audio) {
-          setTimeout(() => playMP3(w.audio), 200);
+          playMP3(w.audio);
+          const a = new Audio('/sfx/crowd-cheer.mp3');
+          a.volume = 0.6;
+          setTimeout(() => a.play().catch(() => {}), 500);
         }
       } catch (e) {
         console.error('[Welcome] error:', e);

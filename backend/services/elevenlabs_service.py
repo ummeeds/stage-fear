@@ -41,7 +41,7 @@ class ElevenLabsService:
             return None
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                files = {"file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
+                files = {"file": ("audio.webm", io.BytesIO(audio_bytes), "audio/webm")}
                 data = {"model_id": "scribe_v1"}
                 headers = {"xi-api-key": self.api_key}
                 response = await client.post(
