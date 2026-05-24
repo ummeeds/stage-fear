@@ -1,17 +1,27 @@
-'use client';
-import './globals.css';
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: 'Stage Fear - Overcome Stage Fright',
+  description: 'Practice public speaking with intelligent AI hecklers',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
       <head>
-        <title>STAGE FEAR - Face the Hecklers</title>
-        <meta name="description" content="Practice public speaking with AI hecklers. Can you keep your cool?" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
       </head>
-      <body>{children}</body>
+      <body className={inter.className}>{children}</body>
     </html>
-  );
+  )
 }

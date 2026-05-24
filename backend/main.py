@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from models import SessionCreate, ThemeType, HecklerPersona, PERSONA_CONFIG, HeckleEvent
+from models import SessionCreate, ThemeType, HecklerType, HECKLER_CONFIG, HeckleEvent
 from services.session_service import (
     create_session, get_session, update_session_status,
     add_transcript_segment, add_heckle, get_recent_heckles,
@@ -17,13 +17,12 @@ from services.llm_service import llm_service
 from services.elevenlabs_service import elevenlabs_service
 
 import os as _os
-_WELCOME_VOICE = _os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
 THEME_ANNOUNCERS = {
-    ThemeType.PRODUCT_LAUNCH: (_WELCOME_VOICE, "Tech conference announcer"),
-    ThemeType.CORPORATE: (_WELCOME_VOICE, "Boardroom host"),
-    ThemeType.STANDUP: (_WELCOME_VOICE, "Comedy club MC"),
-    ThemeType.STAGE_SHOW: (_WELCOME_VOICE, "Theater host"),
+    ThemeType.PRODUCT_LAUNCH: ("21m00Tcm4TlvDq8ikWAM", "Tech conference announcer"),
+    ThemeType.CORPORATE: ("21m00Tcm4TlvDq8ikWAM", "Boardroom host"),
+    ThemeType.STANDUP: ("21m00Tcm4TlvDq8ikWAM", "Comedy club MC"),
+    ThemeType.STAGE_SHOW: ("21m00Tcm4TlvDq8ikWAM", "Theater host"),
 }
 
 WELCOME_TEMPLATES = {
@@ -33,7 +32,7 @@ WELCOME_TEMPLATES = {
     ThemeType.STAGE_SHOW: "And now, the moment you've all been waiting for... please welcome {name}! They're performing about {topic}. Good luck up there!",
 }
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Stage Fear - Heckler Backend")
@@ -120,9 +119,10 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
         await websocket.close()
         return
 
-    personas = list(HecklerPersona)
+    personas = list(HecklerType)
     last_heckle_time = time.time()
     segment_buffer = ""
+    heckle_count = 0
 
     try:
         while True:
@@ -134,41 +134,48 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                     continue
 
                 audio_bytes = base64.b64decode(audio_b64)
-                logger.info(f"[STT] audio_size={len(audio_bytes)} bytes")
+                logger.info(f"Received audio chunk: {len(audio_bytes)} bytes")
                 transcript = await elevenlabs_service.speech_to_text(audio_bytes)
-                logger.info(f"[STT] transcript: '{transcript}' len={len(transcript.split()) if transcript else 0}")
 
                 if transcript and len(transcript.strip()) > 2:
                     segment_buffer += " " + transcript.strip()
-                    logger.info(f"[BUFFER] '{segment_buffer[:80]}...' words={len(segment_buffer.split())}")
+                    logger.info(f"Transcript: '{transcript.strip()}' | Buffer: {len(segment_buffer.split())} words")
 
-                    if len(segment_buffer.split()) >= 4:
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": transcript.strip(),
+                    })
+
+                    word_count = len(segment_buffer.split())
+                    if word_count >= 5:
                         await add_transcript_segment(session_id, segment_buffer.strip())
 
                         intensity = session.intensity
                         heckle_chance = intensity / 5.0
-                        cooldown = max(0.5, 4.0 - intensity * 0.5)
+                        cooldown = max(1.0, 5.0 - intensity * 0.6)
 
                         now = time.time()
-                        will_heckle = now - last_heckle_time > cooldown and random.random() < heckle_chance * 0.8
-                        logger.info(f"[HECKLE CHECK] triggered={will_heckle} buffer={len(segment_buffer.split())} intensity={intensity} chance={heckle_chance*0.8} cooldown={cooldown}s last_heckle_ago={now - last_heckle_time:.1f}s")
-                        if will_heckle:
+                        should_heckle = (now - last_heckle_time > cooldown) and (random.random() < heckle_chance * 0.7)
+
+                        logger.info(f"Heckle check: words={word_count} intensity={intensity} chance={heckle_chance*0.7:.2f} cooldown={cooldown:.1f}s elapsed={now-last_heckle_time:.1f}s should_heckle={should_heckle}")
+
+                        if should_heckle:
                             last_heckle_time = now
+                            heckle_count += 1
 
                             persona = random.choice(personas)
-                            config = PERSONA_CONFIG[persona]
+                            config = HECKLER_CONFIG[persona]
                             recent = await get_recent_heckles(session_id, 5)
 
                             heckle_text = await llm_service.generate_heckle(
                                 transcript_segment=segment_buffer.strip(),
                                 previous_heckles=recent,
-                                persona_tone=config["tone"],
-                                persona_style=config["style"],
+                                persona_type=persona,
                                 topic=session.topic,
                             )
 
                             if heckle_text:
-                                logger.info(f"[HECKLE] generating audio for: {heckle_text}")
+                                logger.info(f"Generating TTS for heckle: {heckle_text}")
                                 audio_bytes_out = await elevenlabs_service.text_to_speech(
                                     text=heckle_text,
                                     voice_id=config["voice_id"],
@@ -176,9 +183,9 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                 audio_b64_out = None
                                 if audio_bytes_out:
                                     audio_b64_out = base64.b64encode(audio_bytes_out).decode()
-                                    logger.info(f"TTS audio generated: {len(audio_bytes_out)} bytes")
+                                    logger.info(f"TTS generated: {len(audio_bytes_out)} bytes")
 
-                                position = random.randint(0, 20)
+                                position = random.randint(0, 23)
                                 heckle = HeckleEvent(
                                     persona=persona,
                                     text=heckle_text,
@@ -195,7 +202,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                     "position": position,
                                     "tone": config["tone"],
                                 })
-                                logger.info(f"[HECKLE] sent to frontend: {heckle_text[:50]}")
+                                logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {heckle_text}")
 
                         segment_buffer = ""
 

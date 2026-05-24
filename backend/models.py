@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional
 from datetime import datetime
 from enum import Enum
 
@@ -11,90 +11,138 @@ class ThemeType(str, Enum):
     STAGE_SHOW = "stage_show"
 
 
-class HecklerPersona(str, Enum):
+class HecklerType(str, Enum):
     SKEPTIC = "skeptic"
-    JEALOUS = "jealous"
-    DRUNK = "drunk"
+    TEEN = "teen"
+    KNOW_IT_ALL = "know_it_all"
+    CLASSIC_HECKLER = "classic_heckler"
+    NERVOUS = "nervous"
     CRITIC = "critic"
-    JOKER = "joker"
-    BOOMER = "boomer"
-    TECH_BRO = "tech_bro"
-    SARCASM = "sarcasm"
 
 
-import os
-DEFAULT_VOICE = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+# ElevenLabs voice IDs - using well-known default voices
+# These are verified working voices from ElevenLabs
+HECKLER_VOICES = {
+    HecklerType.SKEPTIC: "EXAVITQu4vr4xnSDxMaL",      # Bella - thoughtful, questioning tone
+    HecklerType.TEEN: "XB0fDUnXU5powFXDhCwa",       # Adam - young, casual
+    HecklerType.KNOW_IT_ALL: "pNInz6obpgDQGcFmaJgB",  # Adam - authoritative
+    HecklerType.CLASSIC_HECKLER: "ErXwobaYiN019PkySvjV", # Antoni - energetic
+    HecklerType.NERVOUS: "MF3mGyEYCl7XYWbV9V6O",      # Elli - soft, anxious
+    HecklerType.CRITIC: "TxGEqnHWrfWFTfGW9XjX",        # Josh - analytical
+}
 
-PERSONA_CONFIG = {
-    HecklerPersona.SKEPTIC: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "skeptical",
-        "style": "questioning everything with heavy doubt and disbelief"
+HECKLER_CONFIG = {
+    HecklerType.SKEPTIC: {
+        "name": "The Skeptic",
+        "tone": "questioning, doubtful but fair",
+        "style": "asks tough questions, challenges assumptions",
+        "voice_id": HECKLER_VOICES[HecklerType.SKEPTIC],
+        "prompt": """You are THE SKEPTIC in the audience. You question everything the speaker says.
+Your heckles should:
+- Challenge their claims with "But how do you know that?" or "What's your evidence?"
+- Point out logical gaps politely but firmly
+- Ask follow-up questions that make them think
+- Never be mean, just genuinely skeptical
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
-    HecklerPersona.JEALOUS: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "jealous",
-        "style": "bitter and envious about others' success, petty tone"
+    HecklerType.TEEN: {
+        "name": "The Bored Teen",
+        "tone": "sarcastic, unimpressed, Gen-Z energy",
+        "style": "eye-rolls, sighs, dismissive but funny",
+        "voice_id": HECKLER_VOICES[HecklerType.TEEN],
+        "prompt": """You are THE BORED TEEN in the audience. Nothing impresses you.
+Your heckles should:
+- Use casual, dismissive language like "cool story bro" or "this is mid"
+- Show you'd rather be on your phone
+- Make sarcastic comments about how boring it is
+- Use Gen-Z slang naturally
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
-    HecklerPersona.DRUNK: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "drunken",
-        "style": "slurring and incoherent but somehow funny, chaotic energy"
+    HecklerType.KNOW_IT_ALL: {
+        "name": "The Know-It-All",
+        "tone": "condescending, corrective, 'actually...'",
+        "style": "interrupts to correct, shows off knowledge",
+        "voice_id": HECKLER_VOICES[HecklerType.KNOW_IT_ALL],
+        "prompt": """You are THE KNOW-IT-ALL in the audience. You know better than the speaker.
+Your heckles should:
+- Start with "Actually..." or "Technically..."
+- Correct their facts or terminology
+- Mention you read about this somewhere
+- Sound slightly condescending but not rude
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
-    HecklerPersona.CRITIC: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "harsh critic",
-        "style": "brutally honest, nitpicking every single detail mercilessly"
+    HecklerType.CLASSIC_HECKLER: {
+        "name": "The Classic Heckler",
+        "tone": "playful, witty, crowd-work style",
+        "style": "quick comebacks, playful roasts, audience interaction",
+        "voice_id": HECKLER_VOICES[HecklerType.CLASSIC_HECKLER],
+        "prompt": """You are THE CLASSIC HECKLER. You're here for entertainment.
+Your heckles should:
+- Make playful jokes about what they're saying
+- Use classic heckler phrases like "We've been here all day!" or "Get to the point!"
+- Be witty and quick, not mean
+- Reference the topic in a funny way
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
-    HecklerPersona.JOKER: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "playful joker",
-        "style": "making terrible puns and dad jokes about the topic"
+    HecklerType.NERVOUS: {
+        "name": "The Nervous One",
+        "tone": "anxious, projecting, worried",
+        "style": "asks if they're okay, shares their own stage fear",
+        "voice_id": HECKLER_VOICES[HecklerType.NERVOUS],
+        "prompt": """You are THE NERVOUS ONE in the audience. You have terrible stage fright yourself.
+Your heckles should:
+- Ask "Are you okay up there?" or "You seem nervous"
+- Project your own anxiety onto them
+- Say things like "I could never do this" or "My hands are sweating for you"
+- Sound genuinely concerned, not mocking
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
-    HecklerPersona.BOOMER: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "confused boomer",
-        "style": "doesn't understand anything modern, compares everything to 'back in my day'"
-    },
-    HecklerPersona.TECH_BRO: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "dismissive tech bro",
-        "style": "everything is 'just build it bro', mentions web3 and AI ironically"
-    },
-    HecklerPersona.SARCASM: {
-        "voice_id": DEFAULT_VOICE,
-        "tone": "sarcastic",
-        "style": "dripping with heavy sarcasm, slow clap energy, eye-roll vibes"
+    HecklerType.CRITIC: {
+        "name": "The Critic",
+        "tone": "analytical, detailed, finds flaws",
+        "style": "breaks down their argument, points out weaknesses",
+        "voice_id": HECKLER_VOICES[HecklerType.CRITIC],
+        "prompt": """You are THE CRITIC. You analyze everything carefully.
+Your heckles should:
+- Point out structural flaws in their argument
+- Say things like "Your premise is flawed because..." or "You're missing the key point"
+- Be analytical and precise
+- Focus on logic and reasoning gaps
+- Keep it under 15 words
+- NO swearing, NO insults""",
     },
 }
 
 
 class SessionCreate(BaseModel):
     topic: str
+    name: str
     theme: ThemeType
-    intensity: int  # 1-5
-    name: str = ""
-
-
-class CrowdWorkRequest(BaseModel):
-    session_id: str
-    user_transcript: str
+    intensity: int = Field(ge=1, le=5, default=3)
+    character: str = "default"
 
 
 class HeckleEvent(BaseModel):
-    persona: HecklerPersona
+    persona: HecklerType
     text: str
     audio_url: Optional[str] = None
-    position: int  # seat position in crowd
+    position: int
+    tone: str
 
 
 class SessionState(BaseModel):
     id: str
     topic: str
-    name: str = ""
+    name: str
     theme: ThemeType
     intensity: int
-    transcript: List[str] = []
-    heckles: List[HeckleEvent] = []
-    created_at: datetime
+    character: str
+    transcript: list[str] = []
+    heckles: list[HeckleEvent] = []
+    created_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = "crowd_work"

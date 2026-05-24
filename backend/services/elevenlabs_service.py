@@ -1,10 +1,9 @@
 import os
 import io
-import base64
 import logging
 from typing import Optional
 from dotenv import load_dotenv
-from elevenlabs.client import ElevenLabs
+from elevenlabs import ElevenLabs
 import httpx
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -14,34 +13,48 @@ logger = logging.getLogger(__name__)
 
 class ElevenLabsService:
     def __init__(self):
-        self.api_key = os.getenv("ELEVENLABS_API_KEY")
-        if not self.api_key or "YOUR_" in self.api_key:
-            logger.warning("ELEVENLABS_API_KEY not properly set. Voice features will be disabled.")
+        self.api_key = os.getenv("ELEVENLABS_API_KEY", "")
+        if not self.api_key:
+            logger.error("ELEVENLABS_API_KEY not set")
             self.client = None
         else:
             self.client = ElevenLabs(api_key=self.api_key)
+            logger.info("ElevenLabs client initialized")
 
     async def text_to_speech(self, text: str, voice_id: str) -> Optional[bytes]:
+        """Convert text to speech using ElevenLabs TTS API."""
         if not self.client:
+            logger.error("ElevenLabs client not available")
             return None
         try:
+            logger.info(f"TTS request: voice={voice_id[:8]}... text={text[:50]}...")
             audio = self.client.text_to_speech.convert(
-                text=text,
                 voice_id=voice_id,
+                text=text,
                 model_id="eleven_flash_v2_5",
                 output_format="mp3_44100_128",
             )
-            return b"".join(audio)
+            audio_bytes = b"".join(audio)
+            logger.info(f"TTS success: {len(audio_bytes)} bytes")
+            return audio_bytes
         except Exception as e:
             logger.error(f"TTS error: {e}")
             return None
 
     async def speech_to_text(self, audio_bytes: bytes) -> Optional[str]:
-        if not self.api_key or "YOUR_" in self.api_key:
+        """Transcribe audio using ElevenLabs STT API.
+        
+        Per docs: supports all major audio formats.
+        Using scribe_v1 model for reliable transcription.
+        """
+        if not self.api_key:
             return None
         try:
+            logger.info(f"STT request: {len(audio_bytes)} bytes")
             async with httpx.AsyncClient(timeout=30.0) as client:
-                files = {"file": ("audio.webm", io.BytesIO(audio_bytes), "audio/webm")}
+                files = {
+                    "file": ("audio.webm", io.BytesIO(audio_bytes), "audio/webm"),
+                }
                 data = {"model_id": "scribe_v1"}
                 headers = {"xi-api-key": self.api_key}
                 response = await client.post(
@@ -50,11 +63,13 @@ class ElevenLabsService:
                     data=data,
                     headers=headers,
                 )
-                logger.info(f"[STT API] status={response.status_code} body={response.text[:500]}")
                 if response.status_code == 200:
-                    return response.json().get("text", "")
+                    result = response.json()
+                    text = result.get("text", "")
+                    logger.info(f"STT success: '{text[:100]}...'")
+                    return text
                 else:
-                    logger.error(f"STT error: {response.status_code} {response.text[:200]}")
+                    logger.error(f"STT error {response.status_code}: {response.text[:300]}")
                     return None
         except Exception as e:
             logger.error(f"STT HTTP error: {e}")

@@ -14,11 +14,7 @@ logger = logging.getLogger(__name__)
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME", "stage-fear")
 
-if not MONGO_URI:
-    logger.error("MONGO_URI not set!")
-
-from typing import Union
-client: Union[AsyncIOMotorClient, None] = None
+client: Optional[AsyncIOMotorClient] = None
 db = None
 
 
@@ -27,6 +23,7 @@ def get_db():
     if client is None and MONGO_URI:
         client = AsyncIOMotorClient(MONGO_URI)
         db = client[DB_NAME]
+        logger.info("MongoDB connected")
     return db
 
 
@@ -41,6 +38,7 @@ async def create_session(data: SessionCreate) -> SessionState:
         name=data.name,
         theme=data.theme,
         intensity=data.intensity,
+        character=data.character,
         transcript=[],
         heckles=[],
         created_at=datetime.utcnow(),
@@ -48,6 +46,7 @@ async def create_session(data: SessionCreate) -> SessionState:
     )
 
     await database.sessions.insert_one(session.model_dump())
+    logger.info(f"Session created: {session.id}")
     return session
 
 
