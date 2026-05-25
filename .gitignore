@@ -2,6 +2,8 @@ node_modules/
 __pycache__/
 *.pyc
 .env
+.env.backend
+.env.deploy
 .DS_Store
 .next/
 *.log
