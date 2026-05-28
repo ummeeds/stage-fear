@@ -20,13 +20,13 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017
       DB_NAME: stage-fear
-      ALLOWED_ORIGINS: https://${STAGEFEAR_HOST}
-      ALLOWED_HOSTS: ${STAGEFEAR_HOST},localhost,127.0.0.1
+      ALLOWED_ORIGINS: https://${STAGEFEAR_HOST},https://srv1680420.hstgr.cloud,https://stage-fear.srv1680420.hstgr.cloud
+      ALLOWED_HOSTS: ${STAGEFEAR_HOST},srv1680420.hstgr.cloud,stage-fear.srv1680420.hstgr.cloud,localhost,127.0.0.1
     depends_on:
       - mongo
     labels:
       traefik.enable: "true"
-      traefik.http.routers.stagefear-api.rule: Host(`${STAGEFEAR_HOST}`) && (PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}/api`) || PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}/ws`))
+      traefik.http.routers.stagefear-api.rule: (Host(`${STAGEFEAR_HOST}`) || Host(`srv1680420.hstgr.cloud`) || Host(`stage-fear.srv1680420.hstgr.cloud`)) && (PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}/api`) || PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}/ws`))
       traefik.http.routers.stagefear-api.entrypoints: websecure
       traefik.http.routers.stagefear-api.tls.certresolver: letsencrypt
       traefik.http.routers.stagefear-api.priority: "100"
@@ -39,8 +39,8 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://${STAGEFEAR_HOST}${STAGEFEAR_BASE_PATH:-/stage-fear}
-        NEXT_PUBLIC_WS_URL: wss://${STAGEFEAR_HOST}${STAGEFEAR_BASE_PATH:-/stage-fear}
+        NEXT_PUBLIC_API_URL: ${STAGEFEAR_BASE_PATH:-/stage-fear}
+        NEXT_PUBLIC_WS_URL: ""
         NEXT_PUBLIC_BASE_PATH: ${STAGEFEAR_BASE_PATH:-/stage-fear}
     restart: unless-stopped
     mem_limit: 384m
@@ -49,7 +49,7 @@ services:
       - backend
     labels:
       traefik.enable: "true"
-      traefik.http.routers.stagefear-web.rule: Host(`${STAGEFEAR_HOST}`) && PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}`)
+      traefik.http.routers.stagefear-web.rule: (Host(`${STAGEFEAR_HOST}`) || Host(`srv1680420.hstgr.cloud`) || Host(`stage-fear.srv1680420.hstgr.cloud`)) && PathPrefix(`${STAGEFEAR_BASE_PATH:-/stage-fear}`)
       traefik.http.routers.stagefear-web.entrypoints: websecure
       traefik.http.routers.stagefear-web.tls.certresolver: letsencrypt
       traefik.http.routers.stagefear-web.priority: "1"

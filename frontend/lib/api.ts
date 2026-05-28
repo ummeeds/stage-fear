@@ -1,5 +1,13 @@
+import { BASE_PATH } from '@/lib/paths';
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+
+function getWebSocketUrl() {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window === 'undefined') return 'ws://localhost:8000';
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}${BASE_PATH}`;
+}
 
 export async function createSession(topic: string, theme: string, intensity: number, name: string, character: string) {
   const res = await fetch(`${API_URL}/api/sessions`, {
@@ -24,5 +32,5 @@ export async function getWelcomeAudio(sessionId: string) {
 }
 
 export function createWebSocket(sessionId: string): WebSocket {
-  return new WebSocket(`${WS_URL}/ws/${encodeURIComponent(sessionId)}`);
+  return new WebSocket(`${getWebSocketUrl()}/ws/${encodeURIComponent(sessionId)}`);
 }
