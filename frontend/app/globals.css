@@ -624,7 +624,8 @@ input {
 }
 
 .theme-list span,
-.how-panel p {
+.how-panel p,
+.credits-panel p {
   color: var(--muted);
   font-family: monospace;
   font-size: 14px;
@@ -664,8 +665,76 @@ input {
   gap: 8px;
 }
 
-.how-panel p {
+.how-panel p,
+.credits-panel p {
   margin: 0;
+}
+
+.credits-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.credits-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.credits-grid p {
+  display: grid;
+  min-height: 118px;
+  align-content: center;
+  gap: 12px;
+  border: 2px solid #303947;
+  background:
+    linear-gradient(180deg, rgba(20, 27, 40, 0.96), rgba(8, 12, 20, 0.98));
+  padding: 16px;
+  text-align: left;
+  box-shadow: inset 0 0 20px rgba(154, 71, 255, 0.08);
+}
+
+.credits-grid span,
+.credits-note span {
+  color: var(--amber);
+  font-size: 8px;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.credits-grid a,
+.credits-grid b {
+  color: var(--text);
+  font-family: "Press Start 2P", monospace;
+  font-size: clamp(10px, 1vw, 13px);
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+.credits-grid a {
+  color: var(--cyan);
+}
+
+.credits-grid a:hover {
+  color: white;
+  text-shadow: 0 0 12px var(--cyan);
+}
+
+.credits-note {
+  display: grid;
+  gap: 12px;
+  border: 2px solid rgba(154, 71, 255, 0.42);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(154, 71, 255, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(16, 22, 32, 0.95), rgba(7, 11, 19, 0.98));
+  padding: 18px;
+}
+
+.credits-note p {
+  max-width: 78ch;
+  color: #d9deea;
+  font-size: clamp(13px, 1.15vw, 16px);
+  line-height: 1.55;
 }
 
 .settings-panel {
@@ -1144,6 +1213,7 @@ input {
 .mic-glyph,
 .chair-glyph,
 .flame-glyph,
+.credit-glyph,
 .people-glyph,
 .door-glyph {
   position: relative;
@@ -1239,6 +1309,7 @@ input {
 }
 
 .question-glyph,
+.credit-glyph,
 .gear-glyph {
   display: grid;
   width: 34px;
@@ -1246,6 +1317,11 @@ input {
   place-items: center;
   border: 4px solid currentColor;
   font-size: 18px;
+}
+
+.credit-glyph {
+  color: var(--amber);
+  font-size: 16px;
 }
 
 .gear-glyph {

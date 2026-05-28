@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createSession } from '@/lib/api';
 import { assetPath } from '@/lib/paths';
 
-type MenuPanel = 'practice' | 'how' | 'settings';
+type MenuPanel = 'practice' | 'how' | 'settings' | 'credits';
 
 type Character = {
   id: string;
@@ -121,6 +121,10 @@ function SoundGlyph() {
 
 function MicGlyph() {
   return <span className="mic-glyph"><i /></span>;
+}
+
+function CreditGlyph() {
+  return <span className="credit-glyph">★</span>;
 }
 
 export default function HomePage() {
@@ -255,6 +259,7 @@ export default function HomePage() {
     { id: 'practice' as const, title: 'Start Practicing', subtitle: 'Step on stage. Face the crowd.', icon: <MicGlyph /> },
     { id: 'how' as const, title: 'What Happens', subtitle: 'Meet the room before you walk in.', icon: <span className="question-glyph">?</span> },
     { id: 'settings' as const, title: 'Sound Check', subtitle: 'Set crowd and audio levels.', icon: <SoundGlyph /> },
+    { id: 'credits' as const, title: 'Credits', subtitle: 'Built with care for brave speakers.', icon: <CreditGlyph /> },
   ];
 
   return (
@@ -357,6 +362,33 @@ export default function HomePage() {
                 <p>The six hecklers listen for real points in your talk, then interrupt with voiced reactions.</p>
                 <p>Your job is to keep going, recover, and get sharper under pressure.</p>
                 <p>Use headphones for the cleanest mic pickup and the most natural crowd mix.</p>
+              </div>
+            ) : panel === 'credits' ? (
+              <div className="credits-panel">
+                <h2>Credits</h2>
+                <div className="credits-grid">
+                  <p>
+                    <span>Built by</span>
+                    <a href="https://x.com/ummeed_dev" target="_blank" rel="noreferrer">@ummeed_dev</a>
+                  </p>
+                  <p>
+                    <span>Music</span>
+                    <b>Ummeed with ElevenLabs</b>
+                  </p>
+                  <p>
+                    <span>Sound Effects</span>
+                    <b>Ummeed with ElevenLabs</b>
+                  </p>
+                </div>
+                <div className="credits-note">
+                  <span>For anyone who freezes under the lights</span>
+                  <p>
+                    Stage fear can make the words you know disappear right when they matter most.
+                    That does not mean you are weak, unprepared, or not meant to be heard. It means
+                    you are human. Practice gives your voice a path back through the noise, one
+                    shaky sentence at a time, until you can finally say what you came to say.
+                  </p>
+                </div>
               </div>
             ) : panel === 'settings' ? (
               <>
