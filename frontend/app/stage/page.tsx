@@ -84,33 +84,47 @@ function SoundGlyph() {
   return <span className="sound-glyph"><i /><b /></span>;
 }
 
-function playTone(kind: 'boo' | 'cheer') {
+type ReactionKind = 'boo' | 'cheer' | 'whisper' | 'murmur' | 'laugh';
+
+function playTone(kind: ReactionKind) {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContextClass();
     const gain = ctx.createGain();
-    gain.gain.value = kind === 'boo' ? 0.24 : 0.16;
+    gain.gain.value = kind === 'boo' ? 0.24 : kind === 'laugh' ? 0.18 : 0.12;
     gain.connect(ctx.destination);
 
-    const notes = kind === 'boo' ? [180, 132, 92] : [392, 523, 659, 784];
+    const notes =
+      kind === 'boo' ? [180, 132, 92]
+        : kind === 'laugh' ? [330, 390, 360, 420]
+          : kind === 'cheer' ? [392, 523, 659, 784]
+            : [150, 165, 145, 172];
     notes.forEach((frequency, index) => {
       const osc = ctx.createOscillator();
       const envelope = ctx.createGain();
-      const start = ctx.currentTime + index * 0.1;
-      osc.type = kind === 'boo' ? 'sawtooth' : 'square';
+      const start = ctx.currentTime + index * 0.08;
+      osc.type = kind === 'boo' ? 'sawtooth' : kind === 'cheer' ? 'square' : 'triangle';
       osc.frequency.setValueAtTime(frequency, start);
       envelope.gain.setValueAtTime(0.001, start);
-      envelope.gain.linearRampToValueAtTime(0.28, start + 0.04);
-      envelope.gain.exponentialRampToValueAtTime(0.001, start + 0.42);
+      envelope.gain.linearRampToValueAtTime(kind === 'boo' ? 0.28 : 0.16, start + 0.04);
+      envelope.gain.exponentialRampToValueAtTime(0.001, start + 0.38);
       osc.connect(envelope);
       envelope.connect(gain);
       osc.start(start);
-      osc.stop(start + 0.46);
+      osc.stop(start + 0.42);
     });
 
     setTimeout(() => ctx.close().catch(() => undefined), 1200);
   } catch {}
 }
+
+const REACTION_SFX: Record<ReactionKind, string> = {
+  boo: '/sfx/crowd-boo.mp3',
+  cheer: '/sfx/crowd-cheer.mp3',
+  whisper: '/sfx/crowd-whisper.mp3',
+  murmur: '/sfx/crowd-murmur.mp3',
+  laugh: '/sfx/crowd-laugh.mp3',
+};
 
 function StageContent() {
   const searchParams = useSearchParams();
@@ -144,6 +158,8 @@ function StageContent() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const segmentLevelsRef = useRef<number[]>([]);
+  const quietSinceRef = useRef<number | null>(null);
+  const lastSilenceHeckleRef = useRef(0);
   const ambienceRef = useRef<HTMLAudioElement | null>(null);
   const loadedRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
@@ -269,7 +285,28 @@ function StageContent() {
         const rms = Math.sqrt(sum / samples.length);
         segmentLevelsRef.current.push(rms);
         setMicLevel(Math.min(1, rms * 18));
-        if (recordingActiveRef.current) setGateState(rms > 0.018 ? 'hearing' : 'quiet');
+        if (recordingActiveRef.current) {
+          const now = Date.now();
+          const isHearing = rms > 0.018;
+          setGateState(isHearing ? 'hearing' : 'quiet');
+          if (isHearing) {
+            quietSinceRef.current = null;
+          } else {
+            quietSinceRef.current ??= now;
+            const silentFor = now - quietSinceRef.current;
+            if (
+              silentFor > 6200
+              && now - lastSilenceHeckleRef.current > 11000
+              && wsRef.current?.readyState === WebSocket.OPEN
+            ) {
+              lastSilenceHeckleRef.current = now;
+              wsRef.current.send(JSON.stringify({
+                type: 'silence_prompt',
+                silent_for: Math.round(silentFor / 1000),
+              }));
+            }
+          }
+        }
       }, 80);
     } catch {
       analyserRef.current = null;
@@ -283,6 +320,8 @@ function StageContent() {
     audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     segmentLevelsRef.current = [];
+    quietSinceRef.current = null;
+    lastSilenceHeckleRef.current = 0;
     setMicLevel(0);
     setGateState('idle');
   }, []);
@@ -391,15 +430,20 @@ function StageContent() {
       }
       if (data.type === 'heckle') {
         const persona = data.persona || 'classic_heckler';
+        const reaction = (data.reaction || 'laugh') as ReactionKind;
         setActiveHeckler(persona);
         setHeckle({ persona, text: data.text });
         const startedAudio = playMP3(data.audio, () => speakFallback(data.text, persona));
         if (!startedAudio) speakFallback(data.text, persona);
-        const reactionChance = Math.min(0.46, 0.18 + (session?.intensity || 3) * 0.045);
+        const reactionChance = Math.min(0.72, 0.28 + (session?.intensity || 3) * 0.065);
         if (Math.random() < reactionChance) {
           window.setTimeout(() => {
-            playStageSfx('/sfx/crowd-boo.mp3', Math.min(0.38, effectsVolume * 0.34)) || (soundEnabled && playTone('boo'));
-          }, 600 + Math.random() * 950);
+            const sfx = REACTION_SFX[reaction] || REACTION_SFX.laugh;
+            const volume = reaction === 'whisper' || reaction === 'murmur'
+              ? Math.min(0.34, effectsVolume * 0.28)
+              : Math.min(0.48, effectsVolume * 0.42);
+            playStageSfx(sfx, volume) || (soundEnabled && playTone(reaction));
+          }, 420 + Math.random() * 720);
         }
         setTimeout(() => {
           setActiveHeckler(null);

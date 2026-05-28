@@ -12,17 +12,17 @@ export async function createSession(topic: string, theme: string, intensity: num
 }
 
 export async function getSession(sessionId: string) {
-  const res = await fetch(`${API_URL}/api/sessions/${sessionId}`);
+  const res = await fetch(`${API_URL}/api/sessions/${encodeURIComponent(sessionId)}`);
   if (!res.ok) throw new Error('Session not found');
   return res.json();
 }
 
 export async function getWelcomeAudio(sessionId: string) {
-  const res = await fetch(`${API_URL}/api/sessions/${sessionId}/welcome`);
+  const res = await fetch(`${API_URL}/api/sessions/${encodeURIComponent(sessionId)}/welcome`);
   if (!res.ok) throw new Error('Welcome audio not available');
   return res.json();
 }
 
 export function createWebSocket(sessionId: string): WebSocket {
-  return new WebSocket(`${WS_URL}/ws/${sessionId}`);
+  return new WebSocket(`${WS_URL}/ws/${encodeURIComponent(sessionId)}`);
 }

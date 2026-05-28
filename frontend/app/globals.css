@@ -696,7 +696,7 @@ input {
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-rows: minmax(116px, 1fr) auto auto 18px;
+  grid-template-rows: clamp(145px, 14vw, 176px) auto auto 18px;
   place-items: center;
   border: 2px solid color-mix(in srgb, var(--heckler) 75%, #111 25%);
   background:
@@ -756,7 +756,7 @@ input {
 
 .avatar-idle,
 .stage-avatar.is-live {
-  animation: avatarBob 1.3s steps(2) infinite;
+  animation: avatarBob 2.2s ease-in-out infinite;
 }
 
 .avatar-hair,
@@ -875,11 +875,13 @@ input {
 
 .generated-heckler {
   width: calc(100% + 20px);
-  aspect-ratio: 1.02;
+  height: 100%;
+  aspect-ratio: auto;
   overflow: hidden;
   border-bottom: 2px solid color-mix(in srgb, var(--heckler) 45%, transparent);
   filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.25));
-  align-self: stretch;
+  align-self: center;
+  justify-self: center;
   margin: -8px -10px 2px;
 }
 
@@ -889,8 +891,8 @@ input {
   height: 100%;
   background-image: var(--heckler-img);
   background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center top;
+  background-size: 86% auto;
+  background-position: center 34%;
   image-rendering: pixelated;
 }
 
@@ -967,19 +969,25 @@ input {
   pointer-events: none;
 }
 
-.heckler-face {
+.heckler-face:not(.generated-heckler) {
   --unit: clamp(3px, 0.32vw, 5px);
   position: relative;
   width: calc(var(--unit) * 22);
   height: calc(var(--unit) * 26);
 }
 
-.heckler-face svg {
+.heckler-face:not(.generated-heckler) svg {
   display: block;
   width: min(100%, 108px);
   height: auto;
   shape-rendering: crispEdges;
   filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.24));
+}
+
+.heckler-face.generated-heckler {
+  width: calc(100% + 20px);
+  height: 100%;
+  aspect-ratio: auto;
 }
 
 .portrait-bg {
@@ -1326,7 +1334,7 @@ input {
 
 .phase-announce,
 .phase-ready {
-  animation: avatarBob 1.6s steps(2) infinite;
+  animation: avatarBob 2.4s ease-in-out infinite;
 }
 
 .performer-wrap.is-recording {
@@ -1436,7 +1444,7 @@ input {
   border-radius: 48% 48% 12% 12%;
   background: #080b15;
   box-shadow: 0 -8px 0 #0d1020;
-  animation: audienceBob 2.4s steps(2) infinite;
+  animation: audienceBob 3.4s ease-in-out infinite;
 }
 
 .audience-pit i:nth-child(1) { left: 1%; bottom: 5%; }
@@ -1532,7 +1540,6 @@ input {
   opacity: 1;
   filter: brightness(1.25) saturate(1.6) drop-shadow(0 0 18px color-mix(in srgb, var(--heckler) 88%, transparent));
   transform: translateY(-10px) scale(1.12);
-  animation: hecklerPop 0.18s steps(2) infinite;
 }
 
 .crowd-heckler.is-active::before {
@@ -1633,7 +1640,6 @@ input {
 .stage-hecklers article.is-active {
   background: color-mix(in srgb, var(--heckler) 19%, #0d121b 81%);
   box-shadow: 0 0 26px color-mix(in srgb, var(--heckler) 44%, transparent);
-  animation: shake 0.16s steps(2) infinite;
 }
 
 .stage-controls {
@@ -1738,7 +1744,7 @@ input {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-8px);
+    transform: translateY(-3px);
   }
 }
 
@@ -1762,7 +1768,7 @@ input {
 
 @keyframes audienceBob {
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
   }
 }
 

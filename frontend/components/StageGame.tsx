@@ -46,15 +46,7 @@ function drawBackHeckler(scene: PhaserScene, x: number, y: number, scale: number
   g.fillRect(x - 25 * scale, y - 43 * scale, 50 * scale, 7 * scale);
 
   if (active) {
-    scene.tweens.add({
-      targets: g,
-      y: -8 * scale,
-      duration: 150,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Stepped',
-      easeParams: [2],
-    });
+    g.y = -5 * scale;
   }
 
   return g;
@@ -177,38 +169,6 @@ function createStageScene(Phaser: PhaserModule, propsRef: MutableRefObject<Stage
       shadow.fillStyle(0x000000, 0.38);
       shadow.fillEllipse(this.avatar.x, avatarY + 2, w * 0.09, h * 0.04);
 
-      if (props.recording) {
-        const mouth = this.add.graphics();
-        mouth.setDepth(6);
-        mouth.fillStyle(0x14040b, 0.88);
-        mouth.fillRoundedRect(this.avatar.x - 5, avatarY - avatarHeight * 0.54, 13, 5, 2);
-        this.tweens.add({
-          targets: mouth,
-          scaleY: 1.9,
-          duration: 120,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Stepped',
-          easeParams: [2],
-        });
-
-        const gesture = this.add.graphics();
-        gesture.setDepth(4);
-        gesture.lineStyle(3, 0xf7d19c, 0.9);
-        gesture.lineBetween(this.avatar.x - avatarHeight * 0.31, avatarY - avatarHeight * 0.3, this.avatar.x - avatarHeight * 0.43, avatarY - avatarHeight * 0.38);
-        gesture.lineBetween(this.avatar.x + avatarHeight * 0.27, avatarY - avatarHeight * 0.31, this.avatar.x + avatarHeight * 0.4, avatarY - avatarHeight * 0.39);
-        this.tweens.add({
-          targets: gesture,
-          y: -7,
-          alpha: 0.45,
-          duration: 180,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Stepped',
-          easeParams: [2],
-        });
-      }
-
       if (props.phase === 'enter') {
         this.tweens.add({
           targets: [this.avatar, shadow],
@@ -236,12 +196,11 @@ function createStageScene(Phaser: PhaserModule, propsRef: MutableRefObject<Stage
       if (props.recording || props.phase !== 'enter') {
         this.avatarTween = this.tweens.add({
           targets: this.avatar,
-          y: avatarY - (props.recording ? 7 : 4),
-          duration: props.recording ? 220 : 520,
+          y: avatarY - 3,
+          duration: 1450,
           yoyo: true,
           repeat: -1,
-          ease: 'Stepped',
-          easeParams: [2],
+          ease: 'Sine.easeInOut',
         });
       }
     }

@@ -14,15 +14,23 @@ SOUNDS = {
     "ui-select.mp3": "short satisfying 8-bit arcade menu confirm sound, bright pixel chime, retro game UI, no voice",
     "ui-back.mp3": "short low 8-bit arcade cancel sound, soft descending pixel bloop, retro game UI, no voice",
     "crowd-boo.mp3": "small theater audience booing and groaning after a bad line, natural crowd reaction, no words, no music, no announcer",
+    "crowd-whisper.mp3": "small theater audience whispering and murmuring after a sharp comment, natural low crowd reaction, indistinct speech, no clear words, no music",
+    "crowd-murmur.mp3": "small audience concerned murmurs and nervous shifting, natural room reaction, indistinct voices, no clear words, no music",
+    "crowd-laugh.mp3": "small theater audience laughing at a witty heckle, natural short laugh reaction, no clapping, no music, no announcer",
 }
 
 
 async def generate_sound(client: httpx.AsyncClient, api_key: str, filename: str, prompt: str) -> None:
+    path = OUT_DIR / filename
+    if path.exists() and os.getenv("FORCE_SFX") != "1":
+        print(f"Skipping existing {path}")
+        return
+
     response = await client.post(
         "https://api.elevenlabs.io/v1/sound-generation",
         json={
             "text": prompt,
-            "duration_seconds": 1.6 if filename == "crowd-boo.mp3" else 0.5,
+                "duration_seconds": 1.6 if filename.startswith("crowd-") else 0.5,
             "prompt_influence": 0.35,
         },
         headers={
@@ -32,7 +40,6 @@ async def generate_sound(client: httpx.AsyncClient, api_key: str, filename: str,
         },
     )
     response.raise_for_status()
-    path = OUT_DIR / filename
     path.write_bytes(response.content)
     print(f"Wrote {path} ({len(response.content)} bytes)")
 
