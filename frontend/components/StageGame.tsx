@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
+import { assetPath } from '@/lib/paths';
 
 type StageGameProps = {
   characterIndex: number;
@@ -64,7 +65,7 @@ function createStageScene(Phaser: PhaserModule, propsRef: MutableRefObject<Stage
 
     preload() {
       PLAYERS.forEach((name, index) => {
-        this.load.image(`player-${index}`, `/sprites/players/${name}.png`);
+        this.load.image(`player-${index}`, assetPath(`/sprites/players/${name}.png`));
       });
     }
 

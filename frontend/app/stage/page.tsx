@@ -72,7 +72,10 @@ function PixelAvatar({ character, live = false }: { character: Character; live?:
   return (
     <div
       className={`sprite-shell sprite-large generated-character stage-avatar ${live ? 'is-live' : ''}`}
-      style={{ ['--sprite-x' as string]: `${spriteIndex * 20}%` }}
+      style={{
+        ['--sprite-x' as string]: `${spriteIndex * 20}%`,
+        ['--character-sheet' as string]: `url("${assetPath('/sprites/stage-fear-characters.png')}")`,
+      }}
       aria-label={character.id}
       role="img"
     >
