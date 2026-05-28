@@ -632,7 +632,31 @@ input {
 }
 
 .intensity-control input {
+  appearance: none;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background:
+    linear-gradient(90deg, var(--red) 0 var(--range-fill), #d8dde8 var(--range-fill) 100%);
   accent-color: var(--red);
+}
+
+.intensity-control input::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 0;
+  background: #ff493a;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.intensity-control input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 0;
+  background: #ff493a;
 }
 
 .how-panel {

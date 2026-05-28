@@ -7,6 +7,7 @@ import re
 import os
 import uuid
 import unicodedata
+import asyncio
 from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -228,6 +229,122 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
     segment_buffer = ""
     heckle_count = 0
     recent_personas: list[HecklerType] = []
+    processing_tasks: set[asyncio.Task] = set()
+    audio_semaphore = asyncio.Semaphore(2)
+    state_lock = asyncio.Lock()
+    send_lock = asyncio.Lock()
+
+    async def send_json(payload: dict) -> None:
+        async with send_lock:
+            await websocket.send_json(payload)
+
+    async def process_audio_chunk(audio_bytes: bytes, mime_type: str) -> None:
+        nonlocal segment_buffer, last_heckle_time, heckle_count, recent_personas
+        async with audio_semaphore:
+            logger.info(f"Received audio chunk: {len(audio_bytes)} bytes")
+            transcript = await elevenlabs_service.speech_to_text(audio_bytes, mime_type)
+
+        if not transcript or len(transcript.strip()) <= 2:
+            return
+
+        transcript_text = transcript.strip()
+        if not is_user_speech(transcript_text):
+            logger.info(f"Ignored non-speech STT: '{transcript_text}'")
+            return
+
+        async with state_lock:
+            segment_buffer = (segment_buffer + " " + transcript_text)[-MAX_TRANSCRIPT_BUFFER_CHARS:]
+            current_segment = segment_buffer.strip()
+            word_count = len(_speech_words(current_segment))
+            intensity = session.intensity
+            should_consider = is_heckle_worthy(current_segment, intensity)
+
+        logger.info(f"Transcript: '{transcript_text}' | Buffer: {word_count} words")
+        await send_json({
+            "type": "transcript",
+            "text": transcript_text,
+        })
+
+        if not should_consider:
+            return
+
+        now = time.time()
+        cooldown = max(0.45, 2.1 - intensity * 0.28)
+        async with state_lock:
+            should_heckle = now - last_heckle_time > cooldown
+            if not should_heckle:
+                logger.info(
+                    "Heckle check: words=%s intensity=%s cooldown=%.1fs elapsed=%.1fs should_heckle=False",
+                    word_count,
+                    intensity,
+                    cooldown,
+                    now - last_heckle_time,
+                )
+                return
+            last_heckle_time = now
+            heckle_count += 1
+            first_heckle = heckle_count == 1
+            avoid_personas = recent_personas[-3:]
+            segment_for_heckle = current_segment
+            segment_buffer = ""
+
+        logger.info(
+            "Heckle check: words=%s intensity=%s cooldown=%.1fs should_heckle=True",
+            word_count,
+            intensity,
+            cooldown,
+        )
+        await add_transcript_segment(session_id, segment_for_heckle)
+        recent = await get_recent_heckles(session_id, 8)
+        heckle_event = await llm_service.generate_heckle_event(
+            transcript_segment=segment_for_heckle,
+            previous_heckles=recent,
+            topic=session.topic,
+            first_heckle=first_heckle,
+            avoid_personas=avoid_personas,
+        )
+        persona = HecklerType(heckle_event.get("persona", HecklerType.CLASSIC_HECKLER.value))
+        config = HECKLER_CONFIG[persona]
+        heckle_text = heckle_event.get("text")
+
+        if not heckle_text:
+            return
+
+        reaction = heckle_event.get("reaction", "laugh")
+        logger.info(f"Generating TTS for heckle: {heckle_text}")
+        audio_bytes_out = await elevenlabs_service.text_to_speech(
+            text=heckle_text,
+            voice_id=config["voice_id"],
+            voice_settings=config.get("voice_settings"),
+        )
+        audio_b64_out = None
+        if audio_bytes_out:
+            audio_b64_out = base64.b64encode(audio_bytes_out).decode()
+            logger.info(f"TTS generated: {len(audio_bytes_out)} bytes")
+
+        position = random.randint(0, 23)
+        heckle = HeckleEvent(
+            persona=persona,
+            text=heckle_text,
+            audio_url=audio_b64_out,
+            position=position,
+            tone=config["tone"],
+        )
+        await add_heckle(session_id, heckle)
+
+        await send_json({
+            "type": "heckle",
+            "persona": persona.value,
+            "text": heckle_text,
+            "audio": audio_b64_out,
+            "position": position,
+            "tone": config["tone"],
+            "reaction": reaction,
+        })
+        async with state_lock:
+            recent_personas.append(persona)
+            recent_personas = recent_personas[-5:]
+        logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {heckle_text}")
 
     try:
         while True:
@@ -252,87 +369,12 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                 mime_type = data.get("mime_type", "audio/webm")
                 if mime_type not in {"audio/webm", "audio/webm;codecs=opus", "audio/mp4", "audio/mpeg", "audio/wav"}:
                     mime_type = "audio/webm"
-                logger.info(f"Received audio chunk: {len(audio_bytes)} bytes")
-                transcript = await elevenlabs_service.speech_to_text(audio_bytes, mime_type)
-
-                if transcript and len(transcript.strip()) > 2:
-                    transcript_text = transcript.strip()
-                    if not is_user_speech(transcript_text):
-                        logger.info(f"Ignored non-speech STT: '{transcript_text}'")
-                        continue
-
-                    segment_buffer = (segment_buffer + " " + transcript_text)[-MAX_TRANSCRIPT_BUFFER_CHARS:]
-                    logger.info(f"Transcript: '{transcript_text}' | Buffer: {len(_speech_words(segment_buffer))} words")
-
-                    await websocket.send_json({
-                        "type": "transcript",
-                        "text": transcript_text,
-                    })
-
-                    word_count = len(_speech_words(segment_buffer))
-                    intensity = session.intensity
-                    if is_heckle_worthy(segment_buffer, intensity):
-                        await add_transcript_segment(session_id, segment_buffer.strip())
-
-                        cooldown = max(0.7, 3.0 - intensity * 0.42)
-
-                        now = time.time()
-                        should_heckle = (now - last_heckle_time > cooldown)
-
-                        logger.info(f"Heckle check: words={word_count} intensity={intensity} cooldown={cooldown:.1f}s elapsed={now-last_heckle_time:.1f}s should_heckle={should_heckle}")
-
-                        if should_heckle:
-                            last_heckle_time = now
-                            heckle_count += 1
-
-                            recent = await get_recent_heckles(session_id, 5)
-                            heckle_event = await llm_service.generate_heckle_event(
-                                transcript_segment=segment_buffer.strip(),
-                                previous_heckles=recent,
-                                topic=session.topic,
-                                first_heckle=heckle_count == 1,
-                            )
-                            persona = HecklerType(heckle_event.get("persona", HecklerType.CLASSIC_HECKLER.value))
-                            config = HECKLER_CONFIG[persona]
-                            heckle_text = heckle_event.get("text")
-
-                            if heckle_text:
-                                reaction = heckle_event.get("reaction", "laugh")
-                                logger.info(f"Generating TTS for heckle: {heckle_text}")
-                                audio_bytes_out = await elevenlabs_service.text_to_speech(
-                                    text=heckle_text,
-                                    voice_id=config["voice_id"],
-                                    voice_settings=config.get("voice_settings"),
-                                )
-                                audio_b64_out = None
-                                if audio_bytes_out:
-                                    audio_b64_out = base64.b64encode(audio_bytes_out).decode()
-                                    logger.info(f"TTS generated: {len(audio_bytes_out)} bytes")
-
-                                position = random.randint(0, 23)
-                                heckle = HeckleEvent(
-                                    persona=persona,
-                                    text=heckle_text,
-                                    audio_url=audio_b64_out,
-                                    position=position,
-                                    tone=config["tone"],
-                                )
-                                await add_heckle(session_id, heckle)
-
-                                await websocket.send_json({
-                                    "type": "heckle",
-                                    "persona": persona.value,
-                                    "text": heckle_text,
-                                    "audio": audio_b64_out,
-                                    "position": position,
-                                    "tone": config["tone"],
-                                    "reaction": reaction,
-                                })
-                                recent_personas.append(persona)
-                                recent_personas = recent_personas[-4:]
-                                logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {heckle_text}")
-
-                            segment_buffer = ""
+                if len(processing_tasks) >= 4:
+                    logger.warning("Dropping audio chunk because processing backlog is full")
+                    continue
+                task = asyncio.create_task(process_audio_chunk(audio_bytes, mime_type))
+                processing_tasks.add(task)
+                task.add_done_callback(processing_tasks.discard)
 
             elif data.get("type") == "silence_prompt":
                 now = time.time()
@@ -344,7 +386,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                 last_silence_heckle_time = now
                 last_heckle_time = now
                 heckle_count += 1
-                recent = await get_recent_heckles(session_id, 5)
+                recent = await get_recent_heckles(session_id, 8)
                 try:
                     silent_for = max(0, min(60, float(data.get("silent_for", 0) or 0)))
                 except (TypeError, ValueError):
@@ -358,6 +400,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                     previous_heckles=recent,
                     topic=session.topic,
                     first_heckle=False,
+                    avoid_personas=recent_personas[-3:],
                 )
                 persona = HecklerType(heckle_event.get("persona", HecklerType.CLASSIC_HECKLER.value))
                 config = HECKLER_CONFIG[persona]
@@ -380,7 +423,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                         tone=config["tone"],
                     )
                     await add_heckle(session_id, heckle)
-                    await websocket.send_json({
+                    await send_json({
                         "type": "heckle",
                         "persona": persona.value,
                         "text": heckle_text,
@@ -389,16 +432,21 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                         "tone": config["tone"],
                         "reaction": reaction,
                     })
+                    recent_personas.append(persona)
+                    recent_personas = recent_personas[-5:]
 
             elif data.get("type") == "end_session":
                 await update_session_status(session_id, "ended")
-                await websocket.send_json({"type": "session_ended"})
+                await send_json({"type": "session_ended"})
                 break
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for session {session_id}")
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
+    finally:
+        for task in processing_tasks:
+            task.cancel()
 
 
 if __name__ == "__main__":

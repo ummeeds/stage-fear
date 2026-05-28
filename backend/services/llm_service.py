@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 from typing import Optional
 from datetime import datetime
 from openai import AsyncOpenAI
@@ -118,15 +119,18 @@ Generate your heckle now:"""
         previous_heckles: list[str],
         topic: str,
         first_heckle: bool = False,
+        avoid_personas: Optional[list[HecklerType]] = None,
     ) -> dict:
         """Choose persona, heckle text, and reaction in one LLM call."""
         recent = "\n".join(previous_heckles[-5:]) if previous_heckles else "(none yet)"
         current_year = datetime.now().year
         topic_brief = self._topic_brief(topic, transcript_segment)
         persona_names = ", ".join(persona.value for persona in HecklerType)
+        avoid_personas = avoid_personas or []
+        avoid_names = ", ".join(persona.value for persona in avoid_personas) or "(none)"
 
         if not self.client:
-            persona = self.choose_persona(transcript_segment, topic, [])
+            persona = self.choose_persona(transcript_segment, topic, avoid_personas)
             text = self.polish_for_speech(
                 self._fallback_heckle(transcript_segment, persona, topic, first_heckle),
                 persona,
@@ -154,11 +158,13 @@ Context:
 - Current year: {current_year}
 - Real-world topic brief: {topic_brief}
 - Recent heckles to avoid repeating: {recent}
+- Recently used personas to avoid unless absolutely necessary: {avoid_names}
 - First heckle: {first_heckle}
 
 Rules:
 - Infer the exact niche and its real-world skepticism from the topic/transcript.
 - Do not use static template jokes. Do not write generic presentation critique.
+- Rotate the room. Do not choose a persona listed in "recently used personas" unless every other persona is a bad fit.
 - The heckle must reference concrete nouns from the topic or latest transcript.
 - Keep the heckle under 14 words and natural when spoken aloud.
 - Pick reaction from exactly one of: laugh, whisper, murmur, boo.
@@ -199,14 +205,25 @@ Return strict JSON only:
                 if reaction not in {"laugh", "whisper", "murmur", "boo"}:
                     reaction = "laugh"
                 last_payload = {"persona": persona.value, "text": text, "reaction": reaction}
-                if text and not self._is_repetitive_or_ungrounded(text, previous_heckles, topic, transcript_segment):
+                if (
+                    text
+                    and persona not in avoid_personas[:2]
+                    and not self._is_repetitive_or_ungrounded(text, previous_heckles, topic, transcript_segment)
+                ):
                     return last_payload
-            if last_payload.get("text"):
-                return last_payload
-            raise ValueError("empty heckle event")
+            persona = self.choose_persona(transcript_segment, topic, avoid_personas)
+            text = self.polish_for_speech(
+                self._fallback_heckle(transcript_segment, persona, topic, first_heckle),
+                persona,
+            )
+            return {
+                "persona": persona.value,
+                "text": text,
+                "reaction": self.reaction_for_heckle(text, persona, topic, 3),
+            }
         except Exception as e:
             logger.error(f"LLM heckle event error: {e}")
-            persona = self.choose_persona(transcript_segment, topic, [])
+            persona = self.choose_persona(transcript_segment, topic, avoid_personas)
             text = self.polish_for_speech(
                 self._fallback_heckle(transcript_segment, persona, topic, first_heckle),
                 persona,
@@ -232,19 +249,24 @@ Return strict JSON only:
             return True
         if lowered.count("number") + lowered.count("numbers") > 1:
             return True
-        text_words = {word.lower() for word in text.replace("'", " ").split() if len(word) > 3}
+        text_words = self._meaningful_words(text)
         if not text_words:
             return True
-        for previous in previous_heckles[-5:]:
-            previous_words = {word.lower() for word in previous.replace("'", " ").split() if len(word) > 3}
-            if previous_words and len(text_words & previous_words) / max(1, len(text_words | previous_words)) >= 0.42:
+        for previous in previous_heckles[-8:]:
+            previous_words = self._meaningful_words(previous)
+            if lowered == previous.lower().strip():
                 return True
-        source_words = {
-            word.lower()
-            for word in f"{topic} {transcript}".replace("'", " ").split()
-            if len(word) > 3
-        }
+            if previous_words and len(text_words & previous_words) / max(1, len(text_words | previous_words)) >= 0.32:
+                return True
+        source_words = self._meaningful_words(f"{topic} {transcript}")
         return bool(source_words) and not bool(text_words & source_words)
+
+    def _meaningful_words(self, text: str) -> set[str]:
+        return {
+            word.lower()
+            for word in re.findall(r"[A-Za-z][A-Za-z'-]{3,}", text)
+            if word.lower() not in {"that", "this", "with", "from", "your", "they", "them", "what", "where"}
+        }
 
     def choose_persona(self, transcript_segment: str, topic: str, recent_personas: list[HecklerType]) -> HecklerType:
         """Pick the heckler who would naturally jump in for this moment."""
@@ -278,8 +300,8 @@ Return strict JSON only:
             scores[HecklerType.TEEN] += 1
             scores[HecklerType.CLASSIC_HECKLER] += 1
 
-        for persona in recent_personas[-2:]:
-            scores[persona] = max(0, scores[persona] - 3)
+        for persona in recent_personas[-3:]:
+            scores[persona] = max(0, scores[persona] - 5)
 
         best_score = max(scores.values())
         candidates = [persona for persona, score in scores.items() if score == best_score]

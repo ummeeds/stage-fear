@@ -392,7 +392,14 @@ export default function HomePage() {
                   </label>
                   <label className="intensity-control">
                     <span>Heckle Intensity: {intensity}/5</span>
-                    <input type="range" min="1" max="5" value={intensity} onChange={(event) => setIntensity(Number(event.target.value))} />
+                    <input
+                      type="range"
+                      min="1"
+                      max="5"
+                      value={intensity}
+                      style={{ ['--range-fill' as string]: `${((intensity - 1) / 4) * 100}%` }}
+                      onChange={(event) => setIntensity(Number(event.target.value))}
+                    />
                     <small>{selectedTheme.detail}</small>
                   </label>
                   <button className="start-show" disabled={loading} onClick={beginPractice}>{loading ? 'Opening Stage...' : 'Start Practicing'}</button>

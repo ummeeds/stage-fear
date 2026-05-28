@@ -360,14 +360,14 @@ function StageContent() {
         sendAudioBlob(new Blob(chunks, { type: mimeType }), mimeType);
       }
       if (recordingActiveRef.current) {
-        segmentTimeoutRef.current = setTimeout(recordSegment, 120);
+        segmentTimeoutRef.current = setTimeout(recordSegment, 60);
       }
     };
 
     recorder.start();
     segmentTimeoutRef.current = setTimeout(() => {
       if (recorder.state === 'recording') recorder.stop();
-    }, 3200);
+    }, 1400);
   }, [segmentHasVoice, sendAudioBlob]);
 
   useEffect(() => {
