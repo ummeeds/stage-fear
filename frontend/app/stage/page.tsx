@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { createWebSocket, getSession, getWelcomeAudio } from '@/lib/api';
+import { assetPath } from '@/lib/paths';
 
 const StageGame = dynamic(() => import('@/components/StageGame'), { ssr: false });
 
@@ -119,11 +120,11 @@ function playTone(kind: ReactionKind) {
 }
 
 const REACTION_SFX: Record<ReactionKind, string> = {
-  boo: '/sfx/crowd-boo.mp3',
-  cheer: '/sfx/crowd-cheer.mp3',
-  whisper: '/sfx/crowd-whisper.mp3',
-  murmur: '/sfx/crowd-murmur.mp3',
-  laugh: '/sfx/crowd-laugh.mp3',
+  boo: assetPath('/sfx/crowd-boo.mp3'),
+  cheer: assetPath('/sfx/crowd-cheer.mp3'),
+  whisper: assetPath('/sfx/crowd-whisper.mp3'),
+  murmur: assetPath('/sfx/crowd-murmur.mp3'),
+  laugh: assetPath('/sfx/crowd-laugh.mp3'),
 };
 
 function StageContent() {
@@ -235,7 +236,7 @@ function StageContent() {
 
   const startAmbience = useCallback(() => {
     if (!soundEnabled || ambienceRef.current) return;
-    const audio = new Audio('/sfx/crowd-ambience.mp3');
+    const audio = new Audio(assetPath('/sfx/crowd-ambience.mp3'));
     audio.loop = true;
     audio.volume = stageCrowdVolume;
     ambienceRef.current = audio;
@@ -392,7 +393,7 @@ function StageContent() {
                 setPhase('ready');
                 setStatus('Mic check ready.');
                 startAmbience();
-                playStageSfx('/sfx/crowd-cheer.mp3', Math.min(1, effectsVolume * 0.7)) || (soundEnabled && playTone('cheer'));
+                playStageSfx(assetPath('/sfx/crowd-cheer.mp3'), Math.min(1, effectsVolume * 0.7)) || (soundEnabled && playTone('cheer'));
               };
               audio.play().catch(() => {
                 setPhase('ready');

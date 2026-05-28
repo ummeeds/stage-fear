@@ -3,6 +3,8 @@ const path = require('path');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  output: 'standalone',
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
   outputFileTracingRoot: path.join(__dirname),
   turbopack: {
     root: path.join(__dirname),

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSession } from '@/lib/api';
+import { assetPath } from '@/lib/paths';
 
 type MenuPanel = 'practice' | 'how' | 'settings';
 
@@ -86,7 +87,10 @@ function PixelAvatar({ character, large = false, entering = false }: { character
   return (
     <div
       className={`sprite-shell generated-character ${large ? 'sprite-large' : ''} ${entering ? 'sprite-idle' : ''}`}
-      style={{ ['--sprite-x' as string]: `${spriteIndex * 20}%` }}
+      style={{
+        ['--sprite-x' as string]: `${spriteIndex * 20}%`,
+        ['--character-sheet' as string]: `url("${assetPath('/sprites/stage-fear-characters.png')}")`,
+      }}
       aria-label={character.name}
       role="img"
     >
@@ -101,7 +105,7 @@ function HecklerFace({ heckler }: { heckler: Heckler }) {
       className="heckler-face generated-heckler"
       style={{
         ['--heckler' as string]: heckler.color,
-        ['--heckler-img' as string]: `url("/sprites/heckler-portraits/${heckler.id}.png")`,
+        ['--heckler-img' as string]: `url("${assetPath(`/sprites/heckler-portraits/${heckler.id}.png`)}")`,
       }}
       aria-label={heckler.name}
       role="img"
@@ -146,12 +150,12 @@ export default function HomePage() {
   const selectedTheme = THEMES.find((item) => item.value === theme) || THEMES[0];
 
   useEffect(() => {
-    menuAudioRef.current = new Audio('/sfx/menu-loop.mp3');
+    menuAudioRef.current = new Audio(assetPath('/sfx/menu-loop.mp3'));
     menuAudioRef.current.loop = true;
     menuAudioRef.current.volume = 0.42;
-    hoverAudioRef.current = new Audio('/sfx/ui-hover.mp3');
+    hoverAudioRef.current = new Audio(assetPath('/sfx/ui-hover.mp3'));
     hoverAudioRef.current.volume = 0.38;
-    selectAudioRef.current = new Audio('/sfx/ui-select.mp3');
+    selectAudioRef.current = new Audio(assetPath('/sfx/ui-select.mp3'));
     selectAudioRef.current.volume = 0.5;
 
     return () => {
@@ -258,7 +262,7 @@ export default function HomePage() {
       <div className="scanlines" />
       <section className="menu-left">
         <div className="brand-lockup" aria-label="Stage Fear">
-          <img src="/brand/stagefear-logo.png" alt="Stage Fear" />
+          <img src={assetPath('/brand/stagefear-logo.png')} alt="Stage Fear" />
         </div>
         <p className="tagline"><b>Practice bold.</b> <strong>Get roasted.</strong> Own the stage.</p>
 
