@@ -27,19 +27,13 @@ Production deployment uses Docker Compose:
 docker compose -f docker-compose.stagefear.yml up -d --build
 ```
 
-Current VPS deployment:
-
-- Public app URL: `https://stage-fear.srv1680420.hstgr.cloud`
-- Host project path: `/opt/stage-fear`
-- Hermes project path: `/opt/data/projects/stage-fear`
-- Compose command on VPS: `cd /opt/stage-fear && docker compose --env-file .env -f docker-compose.stagefear.yml up -d --build`
-
 Required files on the server:
 
 - `.env.backend` with `ELEVENLABS_API_KEY`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `LLM_MODEL`
 - `STAGEFEAR_HOST` exported in the shell or `.env` next to the compose file
 
-The VPS already runs Traefik. `docker-compose.stagefear.yml` adds Traefik labels:
+The deployment proxy should route the configured host to the compose services.
+`docker-compose.stagefear.yml` adds Traefik labels:
 
 - `https://${STAGEFEAR_HOST}` -> frontend
 - `https://${STAGEFEAR_HOST}/api/*` -> backend
@@ -58,4 +52,4 @@ The VPS already runs Traefik. `docker-compose.stagefear.yml` adds Traefik labels
 - Mobile microphone will fail on plain HTTP. Use HTTPS public host.
 - The app currently relies on browser microphone permission, ElevenLabs STT, OpenRouter, ElevenLabs TTS, and websocket continuity.
 - Avoid screenshot-heavy loops during routine work; use fast compile, endpoint, and real flow checks.
-- GitHub access on the VPS/Hermes still needs an authenticated GitHub token or deploy key attached to `ummeeds/stage-fear`; the deployed snapshot has `origin` configured but unauthenticated HTTPS clone/fetch is blocked for this repo.
+- Production hosts need authenticated GitHub access or a deploy key before private repository fetches will work.

@@ -20,14 +20,14 @@ class HecklerType(str, Enum):
     CRITIC = "critic"
 
 
-# ElevenLabs voice IDs - default library voices tuned per persona with expressive settings.
+# ElevenLabs voice IDs - diverse library voices tuned per persona with expressive settings.
 HECKLER_VOICES = {
-    HecklerType.SKEPTIC: "EXAVITQu4vr4xnSDxMaL",      # Bella - thoughtful, questioning tone
-    HecklerType.TEEN: "XB0fDUnXU5powFXDhCwa",       # Adam - young, casual
-    HecklerType.KNOW_IT_ALL: "pNInz6obpgDQGcFmaJgB",  # Adam - authoritative
-    HecklerType.CLASSIC_HECKLER: "ErXwobaYiN019PkySvjV", # Antoni - energetic
-    HecklerType.NERVOUS: "MF3mGyEYCl7XYWbV9V6O",      # Elli - soft, anxious
-    HecklerType.CRITIC: "TxGEqnHWrfWFTfGW9XjX",        # Josh - analytical
+    HecklerType.SKEPTIC: "EXAVITQu4vr4xnSDxMaL",      # Sarah - mature, questioning
+    HecklerType.TEEN: "IKne3meq5aSn9XLyUdCD",         # Charlie - Australian, energetic
+    HecklerType.KNOW_IT_ALL: "3AMU7jXQuQa3oRvRqUmb",  # Viraj - Hindi/Indian storyteller voice
+    HecklerType.CLASSIC_HECKLER: "N2lVS1w4EtoT3dr4eOWO", # Callum - character/trickster
+    HecklerType.NERVOUS: "pFZP5JQG7iQjIQuC4Bku",      # Lily - British actress tone
+    HecklerType.CRITIC: "onwK4e9ZLuTAKqWW03F9",        # Daniel - British broadcaster
 }
 
 HECKLER_CONFIG = {

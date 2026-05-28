@@ -418,11 +418,7 @@ function StageContent() {
     load();
   }, [effectsVolume, playStageSfx, sessionId, soundEnabled, startAmbience]);
 
-  useEffect(() => {
-    if (!sessionId) return;
-    const ws = createWebSocket(sessionId);
-    wsRef.current = ws;
-    ws.onmessage = (event) => {
+  const handleSocketMessage = useCallback((event: MessageEvent) => {
       const data = JSON.parse(event.data);
       if (data.type === 'transcript') {
         setTranscript((lines) => [...lines, data.text].slice(-14));
@@ -450,16 +446,37 @@ function StageContent() {
           setHeckle(null);
         }, 4600);
       }
-    };
+  }, [effectsVolume, playMP3, playStageSfx, session?.intensity, soundEnabled, speakFallback]);
+
+  const ensureWebSocket = useCallback(() => {
+    if (!sessionId) return null;
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      wsRef.current.onmessage = handleSocketMessage;
+      return wsRef.current;
+    }
+    const ws = createWebSocket(sessionId);
+    ws.onmessage = handleSocketMessage;
+    wsRef.current = ws;
+    return ws;
+  }, [handleSocketMessage, sessionId]);
+
+  useEffect(() => {
+    const ws = ensureWebSocket();
     return () => {
+      if (!ws) return;
       try {
         ws.close();
       } catch {}
     };
-  }, [effectsVolume, playMP3, playStageSfx, session?.intensity, sessionId, soundEnabled, speakFallback]);
+  }, [ensureWebSocket]);
 
   const startMic = useCallback(async () => {
     try {
+      const ws = ensureWebSocket();
+      if (!ws) {
+        setStatus('Session not ready.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
@@ -475,7 +492,7 @@ function StageContent() {
       setStatus('Mic permission failed.');
       startAmbience();
     }
-  }, [startAmbience, startRecordingSegment, startVoiceMeter]);
+  }, [ensureWebSocket, startAmbience, startRecordingSegment, startVoiceMeter]);
 
   const stopMic = useCallback(() => {
     recordingActiveRef.current = false;

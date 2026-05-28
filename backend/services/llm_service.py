@@ -170,27 +170,40 @@ Return strict JSON only:
         user_prompt = f'The speaker just said: "{transcript_segment}"'
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            last_payload: dict = {}
+            for attempt in range(2):
+                messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=120,
-                temperature=0.88,
-                response_format={"type": "json_object"},
-            )
-            content = response.choices[0].message.content or "{}"
-            payload = json.loads(content)
-            persona = HecklerType(payload.get("persona", HecklerType.CLASSIC_HECKLER.value))
-            text = str(payload.get("text", "")).strip().strip('"')
-            reaction = str(payload.get("reaction", "laugh")).strip().lower()
-            if reaction not in {"laugh", "whisper", "murmur", "boo"}:
-                reaction = "laugh"
-            if not text:
-                text = self._fallback_heckle(transcript_segment, persona, topic, first_heckle)
-            text = self.polish_for_speech(text, persona)
-            return {"persona": persona.value, "text": text, "reaction": reaction}
+                ]
+                if attempt:
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "The previous draft was too generic, repeated, or not grounded. "
+                            "Write a different heckle using concrete words from the latest transcript."
+                        ),
+                    })
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=120,
+                    temperature=0.92,
+                    response_format={"type": "json_object"},
+                )
+                content = response.choices[0].message.content or "{}"
+                payload = json.loads(content)
+                persona = HecklerType(payload.get("persona", HecklerType.CLASSIC_HECKLER.value))
+                text = self.polish_for_speech(str(payload.get("text", "")).strip().strip('"'), persona)
+                reaction = str(payload.get("reaction", "laugh")).strip().lower()
+                if reaction not in {"laugh", "whisper", "murmur", "boo"}:
+                    reaction = "laugh"
+                last_payload = {"persona": persona.value, "text": text, "reaction": reaction}
+                if text and not self._is_repetitive_or_ungrounded(text, previous_heckles, topic, transcript_segment):
+                    return last_payload
+            if last_payload.get("text"):
+                return last_payload
+            raise ValueError("empty heckle event")
         except Exception as e:
             logger.error(f"LLM heckle event error: {e}")
             persona = self.choose_persona(transcript_segment, topic, [])
@@ -203,6 +216,35 @@ Return strict JSON only:
                 "text": text,
                 "reaction": self.reaction_for_heckle(text, persona, topic, 3),
             }
+
+    def _is_repetitive_or_ungrounded(self, text: str, previous_heckles: list[str], topic: str, transcript: str) -> bool:
+        lowered = text.lower()
+        if any(generic in lowered for generic in (
+            "get to the point",
+            "are you sure",
+            "what's your evidence",
+            "needs number",
+            "need number",
+            "needs numbers behind it",
+            "need numbers behind it",
+            "that argument needs numbers",
+        )):
+            return True
+        if lowered.count("number") + lowered.count("numbers") > 1:
+            return True
+        text_words = {word.lower() for word in text.replace("'", " ").split() if len(word) > 3}
+        if not text_words:
+            return True
+        for previous in previous_heckles[-5:]:
+            previous_words = {word.lower() for word in previous.replace("'", " ").split() if len(word) > 3}
+            if previous_words and len(text_words & previous_words) / max(1, len(text_words | previous_words)) >= 0.42:
+                return True
+        source_words = {
+            word.lower()
+            for word in f"{topic} {transcript}".replace("'", " ").split()
+            if len(word) > 3
+        }
+        return bool(source_words) and not bool(text_words & source_words)
 
     def choose_persona(self, transcript_segment: str, topic: str, recent_personas: list[HecklerType]) -> HecklerType:
         """Pick the heckler who would naturally jump in for this moment."""
@@ -365,7 +407,7 @@ Keep each under 15 words. Return as JSON array: ["reaction1", "reaction2", "reac
                 f"The weak point is whether {target} still has demand.",
                 f"The weak point is {target}'s actual differentiation.",
                 "You're missing the adoption risk.",
-                "That argument needs numbers behind it.",
+                f"{target} still needs proof people actually want it.",
                 "Let's separate the feature from the business.",
                 "The data burden is doing heavy lifting there.",
             ],

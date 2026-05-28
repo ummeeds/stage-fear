@@ -100,15 +100,16 @@ def is_user_speech(text: str) -> bool:
     return True
 
 
-def is_heckle_worthy(text: str) -> bool:
+def is_heckle_worthy(text: str, intensity: int = 3) -> bool:
     if MIC_CHECK_RE.search(text):
         return False
     words = _speech_words(text)
-    if len(words) < 8:
+    min_words = max(4, 10 - intensity)
+    if len(words) < min_words:
         return False
-    if len(set(word.lower() for word in words)) < 6:
+    if len(set(word.lower() for word in words)) < max(4, min_words - 2):
         return False
-    if len(text.strip()) < 42:
+    if len(text.strip()) < max(24, 54 - intensity * 6):
         return False
     return True
 
@@ -269,11 +270,11 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                     })
 
                     word_count = len(_speech_words(segment_buffer))
-                    if is_heckle_worthy(segment_buffer):
+                    intensity = session.intensity
+                    if is_heckle_worthy(segment_buffer, intensity):
                         await add_transcript_segment(session_id, segment_buffer.strip())
 
-                        intensity = session.intensity
-                        cooldown = max(0.8, 4.0 - intensity * 0.55)
+                        cooldown = max(0.7, 3.0 - intensity * 0.42)
 
                         now = time.time()
                         should_heckle = (now - last_heckle_time > cooldown)
@@ -331,7 +332,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
                                 recent_personas = recent_personas[-4:]
                                 logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {heckle_text}")
 
-                        segment_buffer = ""
+                            segment_buffer = ""
 
             elif data.get("type") == "silence_prompt":
                 now = time.time()
