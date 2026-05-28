@@ -223,13 +223,14 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
         await websocket.close()
         return
 
-    personas = list(HecklerType)
     last_heckle_time = time.time() - 999
     last_silence_heckle_time = time.time() - 999
     segment_buffer = ""
     heckle_count = 0
     recent_personas: list[HecklerType] = []
     processing_tasks: set[asyncio.Task] = set()
+    stage_started_at = time.time()
+    warm_heckles = asyncio.Queue(maxsize=4)
     audio_semaphore = asyncio.Semaphore(2)
     state_lock = asyncio.Lock()
     send_lock = asyncio.Lock()
@@ -237,6 +238,77 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
     async def send_json(payload: dict) -> None:
         async with send_lock:
             await websocket.send_json(payload)
+
+    async def build_heckle_payload(persona: HecklerType, text: str, reaction: str) -> Optional[dict]:
+        config = HECKLER_CONFIG[persona]
+        if not text:
+            return None
+        logger.info(f"Generating TTS for heckle: {text}")
+        audio_bytes_out = await elevenlabs_service.text_to_speech(
+            text=text,
+            voice_id=config["voice_id"],
+            voice_settings=config.get("voice_settings"),
+        )
+        audio_b64_out = None
+        if audio_bytes_out:
+            audio_b64_out = base64.b64encode(audio_bytes_out).decode()
+            logger.info(f"TTS generated: {len(audio_bytes_out)} bytes")
+        return {
+            "type": "heckle",
+            "persona": persona.value,
+            "text": text,
+            "audio": audio_b64_out,
+            "position": random.randint(0, 23),
+            "tone": config["tone"],
+            "reaction": reaction,
+        }
+
+    async def persist_and_send_heckle(payload: dict) -> None:
+        persona = HecklerType(payload["persona"])
+        heckle = HeckleEvent(
+            persona=persona,
+            text=payload["text"],
+            audio_url=payload.get("audio"),
+            position=payload["position"],
+            tone=payload["tone"],
+        )
+        await add_heckle(session_id, heckle)
+        await send_json(payload)
+
+    async def prewarm_heckle(persona: HecklerType, index: int) -> None:
+        prompt = (
+            f"The speaker is about to begin a talk on '{session.topic}'. "
+            f"Generate an opening heckle that can land in the first 30 seconds."
+        )
+        text = await llm_service.generate_heckle(
+            transcript_segment=prompt,
+            previous_heckles=[],
+            persona_type=persona,
+            topic=session.topic,
+            first_heckle=index == 0,
+        )
+        if not text:
+            return
+        reaction = llm_service.reaction_for_heckle(text, persona, session.topic, session.intensity)
+        payload = await build_heckle_payload(persona, text, reaction)
+        if payload:
+            try:
+                warm_heckles.put_nowait(payload)
+                logger.info(f"Prewarmed heckle: {persona.value} - {text}")
+            except asyncio.QueueFull:
+                return
+
+    async def prewarm_initial_heckles() -> None:
+        opening_personas = [
+            HecklerType.CLASSIC_HECKLER,
+            HecklerType.TEEN,
+            HecklerType.SKEPTIC,
+            HecklerType.NERVOUS,
+        ]
+        await asyncio.gather(
+            *(prewarm_heckle(persona, index) for index, persona in enumerate(opening_personas)),
+            return_exceptions=True,
+        )
 
     async def process_audio_chunk(audio_bytes: bytes, mime_type: str) -> None:
         nonlocal segment_buffer, last_heckle_time, heckle_count, recent_personas
@@ -296,55 +368,38 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
         )
         await add_transcript_segment(session_id, segment_for_heckle)
         recent = await get_recent_heckles(session_id, 8)
-        heckle_event = await llm_service.generate_heckle_event(
-            transcript_segment=segment_for_heckle,
-            previous_heckles=recent,
-            topic=session.topic,
-            first_heckle=first_heckle,
-            avoid_personas=avoid_personas,
-        )
-        persona = HecklerType(heckle_event.get("persona", HecklerType.CLASSIC_HECKLER.value))
-        config = HECKLER_CONFIG[persona]
-        heckle_text = heckle_event.get("text")
+        payload = None
+        if heckle_count <= 4 and time.time() - stage_started_at <= 30:
+            try:
+                payload = warm_heckles.get_nowait()
+                logger.info(f"Using prewarmed heckle: {payload['persona']} - {payload['text']}")
+            except asyncio.QueueEmpty:
+                payload = None
 
-        if not heckle_text:
-            return
+        if payload is None:
+            heckle_event = await llm_service.generate_heckle_event(
+                transcript_segment=segment_for_heckle,
+                previous_heckles=recent,
+                topic=session.topic,
+                first_heckle=first_heckle,
+                avoid_personas=avoid_personas,
+            )
+            persona = HecklerType(heckle_event.get("persona", HecklerType.CLASSIC_HECKLER.value))
+            heckle_text = heckle_event.get("text")
+            if not heckle_text:
+                return
+            payload = await build_heckle_payload(persona, heckle_text, heckle_event.get("reaction", "laugh"))
+            if payload is None:
+                return
 
-        reaction = heckle_event.get("reaction", "laugh")
-        logger.info(f"Generating TTS for heckle: {heckle_text}")
-        audio_bytes_out = await elevenlabs_service.text_to_speech(
-            text=heckle_text,
-            voice_id=config["voice_id"],
-            voice_settings=config.get("voice_settings"),
-        )
-        audio_b64_out = None
-        if audio_bytes_out:
-            audio_b64_out = base64.b64encode(audio_bytes_out).decode()
-            logger.info(f"TTS generated: {len(audio_bytes_out)} bytes")
-
-        position = random.randint(0, 23)
-        heckle = HeckleEvent(
-            persona=persona,
-            text=heckle_text,
-            audio_url=audio_b64_out,
-            position=position,
-            tone=config["tone"],
-        )
-        await add_heckle(session_id, heckle)
-
-        await send_json({
-            "type": "heckle",
-            "persona": persona.value,
-            "text": heckle_text,
-            "audio": audio_b64_out,
-            "position": position,
-            "tone": config["tone"],
-            "reaction": reaction,
-        })
+        await persist_and_send_heckle(payload)
+        persona = HecklerType(payload["persona"])
         async with state_lock:
             recent_personas.append(persona)
             recent_personas = recent_personas[-5:]
-        logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {heckle_text}")
+        logger.info(f"Heckle #{heckle_count} sent: {persona.value} - {payload['text']}")
+
+    warmup_task = asyncio.create_task(prewarm_initial_heckles())
 
     try:
         while True:
@@ -445,6 +500,7 @@ async def stage_websocket(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
     finally:
+        warmup_task.cancel()
         for task in processing_tasks:
             task.cancel()
 
