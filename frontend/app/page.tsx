@@ -406,7 +406,6 @@ export default function HomePage() {
 
       <footer className="menu-footer">
         <span>Best experienced with a mic and headphones.</span>
-        <b>ElevenHacks 2025</b>
       </footer>
     </main>
   );
